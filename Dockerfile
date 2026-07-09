@@ -4,9 +4,9 @@ WORKDIR /app
 
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
-# Claude Code CLI ставится в /root/.local/bin
-ENV PATH="/root/.local/bin:${PATH}"
-# Провайдер (ключ подставится из БД/settings в runtime)
+# Claude Code CLI ставится в ~/.local/bin пользователя bot
+ENV HOME=/home/bot
+ENV PATH="/home/bot/.local/bin:${PATH}"
 ENV ANTHROPIC_BASE_URL=https://claude-code-cli.vibecode-claude.online
 ENV DISABLE_TELEMETRY=1
 ENV DISABLE_ERROR_REPORTING=1
@@ -20,17 +20,23 @@ ENV CI=1
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl ca-certificates bash \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && useradd -m -u 1000 -s /bin/bash bot
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Claude Code CLI >= 2.1.150 (обязателен для провайдера)
+# Claude Code CLI >= 2.1.150 от пользователя bot (не root!)
+USER bot
 RUN curl -fsSL https://claude.ai/install.sh | bash \
     && claude --version
 
+USER root
 COPY . .
+RUN mkdir -p /app/logs /home/bot/.claude \
+    && chown -R bot:bot /app /home/bot
 
-RUN mkdir -p logs /root/.claude
+USER bot
+WORKDIR /app
 
 CMD ["python", "main.py"]

@@ -68,6 +68,7 @@ def find_claude_bin():
     home = Path.home()
     candidates = [
         home / '.local' / 'bin' / 'claude',
+        Path('/home/bot/.local/bin/claude'),
         Path('/usr/local/bin/claude'),
         Path('/root/.local/bin/claude'),
     ]
@@ -264,6 +265,8 @@ def call_claude(prompt, system_prompt=None, max_tokens=4096):
         env['HOME'] = work_dir
         env['USERPROFILE'] = work_dir  # Windows-совместимость на всякий
 
+        # Не используем bypassPermissions: Claude CLI запрещает его под root.
+        # В -p режиме + --tools "" диалоги прав не нужны.
         cmd = [
             claude_bin,
             '-p',
@@ -271,7 +274,7 @@ def call_claude(prompt, system_prompt=None, max_tokens=4096):
             '--model', model,
             '--tools', '',
             '--no-session-persistence',
-            '--permission-mode', 'bypassPermissions',
+            '--permission-mode', 'dontAsk',
             '--settings', str(settings_path),
         ]
         if system_prompt:
@@ -374,6 +377,11 @@ def _friendly_cli_error(err):
             "❌ Claude Code CLI устарел на сервере.\n"
             f"Нужна версия ≥ {MIN_CLI_VERSION}.\n"
             "Админу: обнови CLI в Docker/на сервере (`claude update`)."
+        )
+    if 'root/sudo' in lower or 'cannot be used with root' in lower:
+        return (
+            "❌ Claude CLI нельзя запускать от root с bypassPermissions.\n"
+            "Нужен редеплой образа без root / без этого флага."
         )
     if 'not logged in' in lower or 'please log in' in lower or 'authentication' in lower:
         return (
