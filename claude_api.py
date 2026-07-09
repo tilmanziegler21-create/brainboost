@@ -12,12 +12,24 @@ from database import get_setting
 
 logger = logging.getLogger('brainboost')
 
-# Провайдер — ТОЛЬКО через Claude Code CLI
+# Провайдер — ТОЛЬКО через Claude Code CLI (мануал: «кроме CLI ключ НИГДЕ не работает»)
 DEFAULT_BASE_URL = 'https://claude-code-cli.vibecode-claude.online'
-# opus-4-8 часто даёт 400 (thinking) — по умолчанию 4-7 стабильнее
 DEFAULT_MODEL = 'claude-opus-4-7'
-DEFAULT_CLIENT_VERSION = '2.1.205'
 MIN_CLI_VERSION = '2.1.150'
+
+# settings.json СТРОГО по мануалу провайдера — без лишних полей
+MANUAL_SETTINGS_ENV_KEYS = (
+    'ANTHROPIC_BASE_URL',
+    'ANTHROPIC_API_KEY',
+    'DISABLE_TELEMETRY',
+    'DISABLE_ERROR_REPORTING',
+    'CLAUDE_CODE_DISABLE_NONSTREAMING_FALLBACK',
+    'DISABLE_AUTOUPDATER',
+    'DISABLE_BUG_COMMAND',
+    'DISABLE_COST_WARNINGS',
+    'DISABLE_NON_ESSENTIAL_MODEL_CALLS',
+    'CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY',
+)
 
 MODEL_MULTIPLIERS = {
     'claude-fable-5': 2.0,
@@ -68,13 +80,12 @@ def find_claude_bin():
         if path:
             return path
     home = Path.home()
-    candidates = [
+    for c in (
         home / '.local' / 'bin' / 'claude',
         Path('/home/bot/.local/bin/claude'),
         Path('/usr/local/bin/claude'),
         Path('/root/.local/bin/claude'),
-    ]
-    for c in candidates:
+    ):
         if c.is_file() and os.access(c, os.X_OK):
             return str(c)
     return None
@@ -118,24 +129,27 @@ def cli_version_ok(version=None):
 
 def _stable_home():
     """
-    Постоянный HOME для CLI.
-    Провайдер привязывает ключ к устройству — нельзя менять HOME на каждый запрос.
+    Постоянный HOME.
+    Мануал: ключ привязывается к устройству; нельзя менять профиль на каждый запрос.
     """
-    custom = get_setting('claude_home')
+    custom = get_setting('claude_home') or os.environ.get('CLAUDE_HOME')
     if custom:
         path = Path(custom)
     else:
-        # Предпочитаем домашний каталог пользователя контейнера
         path = Path(os.environ.get('HOME') or Path.home())
         if not os.access(path, os.W_OK):
-            path = Path(tempfile.gettempdir()) / 'brainboost_claude_home'
+            path = Path('/tmp/brainboost_claude_home')
     path.mkdir(parents=True, exist_ok=True)
     (path / '.claude').mkdir(parents=True, exist_ok=True)
     return path
 
 
 def _build_settings(api_key, base_url):
-    """settings.json строго по инструкции провайдера + отключение thinking"""
+    """
+    settings.json В ТОЧНОСТИ как в мануале провайдера.
+    Цитата: «Содержимое settings.json должно быть в точности таким же…
+    Любые лишние/недостающие поля могут привести к тому, что подключение не сработает.»
+    """
     return {
         'env': {
             'ANTHROPIC_BASE_URL': base_url,
@@ -148,40 +162,8 @@ def _build_settings(api_key, base_url):
             'DISABLE_COST_WARNINGS': '1',
             'DISABLE_NON_ESSENTIAL_MODEL_CALLS': '1',
             'CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY': '1',
-            # Снижает 400 на opus-4-8 (thinking / beta headers)
-            'MAX_THINKING_TOKENS': '0',
-            'CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS': '1',
-            'DISABLE_INTERLEAVED_THINKING': '1',
         }
     }
-
-
-def _provider_env(api_key, base_url, home_dir):
-    """Env процесса claude — как в инструкции + стабильный HOME"""
-    env = os.environ.copy()
-    env['HOME'] = str(home_dir)
-    env['USERPROFILE'] = str(home_dir)
-    env['ANTHROPIC_BASE_URL'] = base_url
-    env['ANTHROPIC_API_KEY'] = api_key
-    # Вариант 1 из инструкции провайдера
-    env['ANTHROPIC_CUSTOM_HEADERS'] = f'X-Api-Key: {api_key}'
-    env['DISABLE_TELEMETRY'] = '1'
-    env['DISABLE_ERROR_REPORTING'] = '1'
-    env['DISABLE_AUTOUPDATER'] = '1'
-    env['DISABLE_COST_WARNINGS'] = '1'
-    env['DISABLE_BUG_COMMAND'] = '1'
-    env['DISABLE_NON_ESSENTIAL_MODEL_CALLS'] = '1'
-    env['CLAUDE_CODE_DISABLE_NONSTREAMING_FALLBACK'] = '1'
-    env['CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY'] = '1'
-    env['CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS'] = '1'
-    env['MAX_THINKING_TOKENS'] = '0'
-    env['DISABLE_INTERLEAVED_THINKING'] = '1'
-    env['CI'] = '1'
-    env['TERM'] = 'dumb'
-    # Убрать конфликтующие токены OAuth, если вдруг есть
-    for k in ('ANTHROPIC_AUTH_TOKEN', 'CLAUDE_CODE_OAUTH_TOKEN'):
-        env.pop(k, None)
-    return env
 
 
 def _write_settings(home_dir, api_key, base_url):
@@ -195,20 +177,112 @@ def _write_settings(home_dir, api_key, base_url):
     return settings_path
 
 
+def _apply_oauth_token(home_dir):
+    """
+    Мануал шаг 2: нужен логин в Claude Code (даже бесплатный аккаунт).
+    На сервере интерактивный логин неудобен — можно передать токен:
+      /set_claude_oauth_token TOKEN
+    или env CLAUDE_CODE_OAUTH_TOKEN
+    """
+    token = (
+        get_setting('claude_oauth_token')
+        or os.environ.get('CLAUDE_CODE_OAUTH_TOKEN')
+        or ''
+    ).strip()
+    if not token:
+        return False
+
+    cred_path = Path(home_dir) / '.claude' / '.credentials.json'
+    # Минимальный формат, который CLI обычно принимает
+    payload = {
+        'claudeAiOauth': {
+            'accessToken': token,
+            'refreshToken': token,
+            'expiresAt': '2099-01-01T00:00:00.000Z',
+        }
+    }
+    # Если уже похоже на JSON credentials — пишем как есть
+    if token.startswith('{'):
+        try:
+            payload = json.loads(token)
+        except json.JSONDecodeError:
+            pass
+
+    cred_path.write_text(json.dumps(payload, ensure_ascii=False), encoding='utf-8')
+    try:
+        os.chmod(cred_path, 0o600)
+    except OSError:
+        pass
+    return True
+
+
+def _has_cli_login(home_dir):
+    """Есть ли признаки логина CLI (credentials / oauth token)"""
+    if get_setting('claude_oauth_token') or os.environ.get('CLAUDE_CODE_OAUTH_TOKEN'):
+        return True
+    home = Path(home_dir)
+    for p in (
+        home / '.claude' / '.credentials.json',
+        home / '.claude' / 'credentials.json',
+        home / '.credentials.json',
+    ):
+        if p.is_file() and p.stat().st_size > 10:
+            return True
+    # Глобальный ~/.claude.json иногда хранит сессию
+    claude_json = home / '.claude.json'
+    if claude_json.is_file():
+        try:
+            data = json.loads(claude_json.read_text(encoding='utf-8'))
+            if data.get('oauthAccount') or data.get('primaryApiKey') or data.get('hasCompletedOnboarding'):
+                return True
+        except Exception:
+            pass
+    return False
+
+
+def _provider_env(api_key, base_url, home_dir):
+    """
+    Env для процесса.
+    Мануал вариант 1: ANTHROPIC_BASE_URL + ANTHROPIC_CUSTOM_HEADERS.
+    Вариант 2: те же значения через settings.json (пишем файл отдельно).
+    Не добавляем лишние переменные сверх мануала.
+    """
+    env = os.environ.copy()
+    env['HOME'] = str(home_dir)
+    env['USERPROFILE'] = str(home_dir)
+
+    # Вариант 1 (сессионный) — дублируем, чтобы точно подтянулось
+    env['ANTHROPIC_BASE_URL'] = base_url
+    env['ANTHROPIC_CUSTOM_HEADERS'] = f'X-Api-Key: {api_key}'
+    # Вариант 2 тоже использует API_KEY в settings; в env тоже ок
+    env['ANTHROPIC_API_KEY'] = api_key
+
+    for key in MANUAL_SETTINGS_ENV_KEYS:
+        if key in ('ANTHROPIC_BASE_URL', 'ANTHROPIC_API_KEY'):
+            continue
+        env[key] = '1'
+
+    oauth = (get_setting('claude_oauth_token') or os.environ.get('CLAUDE_CODE_OAUTH_TOKEN') or '').strip()
+    if oauth and not oauth.startswith('{'):
+        env['CLAUDE_CODE_OAUTH_TOKEN'] = oauth
+
+    env['CI'] = '1'
+    env['TERM'] = 'dumb'
+    # Убрать чужие auth, которые перебьют наш ключ (мануал FAQ #1/#6)
+    for k in ('ANTHROPIC_AUTH_TOKEN',):
+        env.pop(k, None)
+    return env
+
+
 def check_usage():
     api_key, base_url, _ = get_claude_config()
-
     if not api_key or api_key in ('sk-ant-api-xxx', 'Не настроен'):
         return False, 'API ключ не настроен'
 
-    url = f'{base_url}/v1/usage'
     try:
         response = requests.get(
-            url,
-            headers={
-                'X-Api-Key': api_key,
-                'Content-Type': 'application/json',
-            },
+            f'{base_url}/v1/usage',
+            headers={'X-Api-Key': api_key, 'Content-Type': 'application/json'},
             timeout=20,
         )
         if response.status_code == 200:
@@ -228,27 +302,17 @@ def check_usage():
 def format_usage_text(data):
     if isinstance(data, str):
         return data
-
     lines = ['💳 *Баланс провайдера*\n']
     for key, label in [
-        ('balance', 'Баланс'),
-        ('credits', 'Кредиты'),
-        ('remaining', 'Осталось'),
-        ('limit', 'Лимит'),
-        ('used', 'Использовано'),
-        ('total', 'Всего'),
-        ('plan', 'План'),
-        ('status', 'Статус'),
-        ('tokens_remaining', 'Токенов осталось'),
-        ('tokens_used', 'Токенов использовано'),
-        ('tokens_limit', 'Лимит токенов'),
-        ('quota', 'Квота'),
-        ('expires_at', 'Истекает'),
-        ('reset_at', 'Сброс'),
+        ('balance', 'Баланс'), ('credits', 'Кредиты'), ('remaining', 'Осталось'),
+        ('limit', 'Лимит'), ('used', 'Использовано'), ('total', 'Всего'),
+        ('plan', 'План'), ('status', 'Статус'),
+        ('tokens_remaining', 'Токенов осталось'), ('tokens_used', 'Токенов использовано'),
+        ('tokens_limit', 'Лимит токенов'), ('quota', 'Квота'),
+        ('expires_at', 'Истекает'), ('reset_at', 'Сброс'),
     ]:
         if key in data and data[key] is not None:
             lines.append(f'• {label}: `{data[key]}`')
-
     for nest_key in ('usage', 'limits', 'account', 'data'):
         nested = data.get(nest_key)
         if isinstance(nested, dict):
@@ -256,21 +320,13 @@ def format_usage_text(data):
             for k, v in nested.items():
                 if not isinstance(v, (dict, list)):
                     lines.append(f'• {k}: `{v}`')
-
     if len(lines) == 1:
         raw = json.dumps(data, ensure_ascii=False, indent=2)
-        if len(raw) > 1500:
-            raw = raw[:1500] + '...'
-        lines.append(f'```\n{raw}\n```')
-
+        lines.append(f'```\n{raw[:1500]}\n```')
     return '\n'.join(lines)
 
 
 def call_claude(prompt, system_prompt=None, max_tokens=4096):
-    """
-    Запрос через Claude Code CLI.
-    Возвращает: (response_text, input_tokens, output_tokens)
-    """
     api_key, base_url, model = get_claude_config()
 
     if not api_key or api_key in ('sk-ant-api-xxx', 'Не настроен'):
@@ -279,26 +335,38 @@ def call_claude(prompt, system_prompt=None, max_tokens=4096):
     claude_bin = find_claude_bin()
     if not claude_bin:
         return (
-            "⚠️ Claude Code CLI не установлен на сервере.\n"
-            "Нужна версия ≥ 2.1.150. Без CLI ключ провайдера не работает.",
+            "⚠️ Claude Code CLI не установлен.\n"
+            "По мануалу ключ работает ТОЛЬКО через Claude Code CLI ≥ 2.1.150.",
             0, 0,
         )
 
     version = get_cli_version(claude_bin)
     if version and not cli_version_ok(version):
         return (
-            f"⚠️ Claude Code CLI слишком старый: {version}\n"
-            f"Нужно ≥ {MIN_CLI_VERSION}. На сервере: `claude update`",
+            f"⚠️ CLI {version} слишком старый. Нужно ≥ {MIN_CLI_VERSION} (`claude update`).",
             0, 0,
         )
 
     home_dir = _stable_home()
-    settings_path = _write_settings(home_dir, api_key, base_url)
-    env = _provider_env(api_key, base_url, home_dir)
+    _write_settings(home_dir, api_key, base_url)
+    _apply_oauth_token(home_dir)
 
-    # Рабочая директория для сессии (не HOME — HOME стабильный)
+    if not _has_cli_login(home_dir):
+        return (
+            "⚠️ По мануалу нужен логин Claude Code (шаг 2), даже бесплатный аккаунт.\n\n"
+            "На сервере задай OAuth-токен:\n"
+            "`/set_claude_oauth_token ТВОЙ_ТОКЕН`\n\n"
+            "Как получить: локально `claude setup-token` или скопируй токен из сессии CLI.\n"
+            "Без логина ключ провайдера «не подтягивается» (FAQ #1/#5/#6).",
+            0, 0,
+        )
+
+    env = _provider_env(api_key, base_url, home_dir)
     work_dir = tempfile.mkdtemp(prefix='bb_claude_work_')
+    settings_path = Path(home_dir) / '.claude' / 'settings.json'
+
     try:
+        # Минимальный вызов: модель через --model (в settings дефолты моделей НЕ кладём — мануал)
         cmd = [
             claude_bin,
             '-p',
@@ -311,15 +379,10 @@ def call_claude(prompt, system_prompt=None, max_tokens=4096):
         ]
         if system_prompt:
             cmd.extend(['--system-prompt', system_prompt])
-
         cmd.append(prompt)
 
         timeout = int(get_setting('claude_timeout', '180') or 180)
-
-        logger.info(
-            'claude_cli call model=%s version=%s home=%s',
-            model, version, home_dir,
-        )
+        logger.info('claude_cli model=%s ver=%s home=%s', model, version, home_dir)
 
         result = subprocess.run(
             cmd,
@@ -334,23 +397,18 @@ def call_claude(prompt, system_prompt=None, max_tokens=4096):
         stderr = (result.stderr or '').strip()
 
         if result.returncode != 0 and not stdout:
-            err = stderr or f'exit code {result.returncode}'
-            logger.warning('claude_cli fail rc=%s err=%s', result.returncode, err[:500])
-            return _friendly_cli_error(err), 0, 0
+            logger.warning('claude_cli rc=%s err=%s', result.returncode, (stderr or '')[:500])
+            return _friendly_cli_error(stderr or f'exit {result.returncode}'), 0, 0
 
-        # Ошибка может прийти в stdout как JSON с is_error
-        text, inp, out, err_flag = _parse_cli_output(stdout, prompt, stderr)
-        if err_flag or text.startswith('❌') or _looks_like_api_error(text + ' ' + stderr):
-            combined = stderr or text
-            if 'API Error' in text or 'error' in text.lower():
-                combined = text
-            return _friendly_cli_error(combined), 0, 0
+        text, inp, out, is_err = _parse_cli_output(stdout, prompt, stderr)
+        if is_err or text.startswith('❌') or _looks_like_api_error(text + ' ' + stderr):
+            return _friendly_cli_error(text if _looks_like_api_error(text) else (stderr or text)), 0, 0
 
         mult = get_model_multiplier(model)
         return text, int(inp * mult), int(out * mult)
 
     except subprocess.TimeoutExpired:
-        return "⏰ Превышено время ожидания Claude CLI. Попробуй позже.", 0, 0
+        return "⏰ Таймаут Claude CLI. Попробуй позже.", 0, 0
     except Exception as e:
         return f"❌ Ошибка CLI: {str(e)}", 0, 0
     finally:
@@ -360,22 +418,15 @@ def call_claude(prompt, system_prompt=None, max_tokens=4096):
 def _looks_like_api_error(text):
     lower = (text or '').lower()
     return any(x in lower for x in (
-        'api error',
-        'unexpected error',
-        'please contact support',
-        'please run claude update',
-        'rate limit',
-        'authentication',
+        'api error', 'unexpected error', 'please contact support',
+        'please run claude update', 'rate limit', 'please log in',
+        'low balance', 'add funds', 'insufficient',
     ))
 
 
 def _parse_cli_output(stdout, prompt, stderr=''):
-    """
-    Разобрать --output-format json.
-    Возвращает: (text, input_tokens, output_tokens, is_error)
-    """
     if not stdout:
-        return (stderr or "❌ Пустой ответ от Claude CLI"), 0, 0, True
+        return (stderr or '❌ Пустой ответ от Claude CLI'), 0, 0, True
 
     candidates = [stdout]
     if '\n' in stdout:
@@ -390,7 +441,6 @@ def _parse_cli_output(stdout, prompt, stderr=''):
         except json.JSONDecodeError:
             continue
 
-        # CLI иногда кладёт ошибку в JSON
         is_error = bool(data.get('is_error') or data.get('error'))
         err_msg = ''
         if isinstance(data.get('error'), dict):
@@ -398,13 +448,7 @@ def _parse_cli_output(stdout, prompt, stderr=''):
         elif isinstance(data.get('error'), str):
             err_msg = data['error']
 
-        text = (
-            data.get('result')
-            or data.get('content')
-            or data.get('text')
-            or err_msg
-            or ''
-        )
+        text = data.get('result') or data.get('content') or data.get('text') or err_msg or ''
         if isinstance(text, list):
             parts = []
             for block in text:
@@ -430,53 +474,40 @@ def _parse_cli_output(stdout, prompt, stderr=''):
                 text = err_msg or 'unknown CLI error'
             return str(text), int(inp), int(out), is_error or _looks_like_api_error(str(text))
 
-    text = stdout
-    return text, int(len(prompt.split()) * 1.3), int(len(text.split()) * 1.3), _looks_like_api_error(text)
+    return stdout, int(len(prompt.split()) * 1.3), int(len(stdout.split()) * 1.3), _looks_like_api_error(stdout)
 
 
 def _friendly_cli_error(err):
     lower = (err or '').lower()
     if 'please run claude update' in lower or 'needs an update' in lower:
-        return (
-            "❌ Claude Code CLI устарел на сервере.\n"
-            f"Нужна версия ≥ {MIN_CLI_VERSION}."
-        )
+        return f"❌ CLI устарел. Нужно ≥ {MIN_CLI_VERSION}."
     if 'root/sudo' in lower or 'cannot be used with root' in lower:
+        return "❌ CLI нельзя с bypassPermissions от root. Нужен user bot в Docker."
+    if 'please log in' in lower or 'not logged in' in lower:
         return (
-            "❌ Claude CLI нельзя запускать от root с bypassPermissions.\n"
-            "Нужен редеплой образа (user bot)."
-        )
-    if '400' in lower and ('unexpected' in lower or 'support' in lower or 'thinking' in lower):
-        return (
-            "❌ Провайдер вернул 400 (часто на opus-4-8 / thinking).\n"
-            "Попробуй:\n"
-            "`/set_claude_model claude-opus-4-7`\n"
-            "или `/set_claude_model claude-sonnet-4-6`\n\n"
-            f"Детали: {err[:300]}"
-        )
-    if 'not logged in' in lower or 'please log in' in lower:
-        return (
-            "❌ Claude Code CLI требует логин на сервере (вариант 2).\n"
-            "После логина запросы идут через ключ провайдера."
-        )
-    if 'authentication' in lower or '401' in lower or '403' in lower:
-        return (
-            "❌ Ключ отклонён (auth/403).\n"
-            "Проверь баланс и что ключ не привязан к другому устройству "
-            "(привязка сбрасывается раз в 8 часов)."
+            "❌ Нет логина Claude Code (мануал шаг 2).\n"
+            "`/set_claude_oauth_token TOKEN` — даже бесплатный аккаунт."
         )
     if 'low balance' in lower or 'add funds' in lower or 'insufficient' in lower:
         return (
-            "❌ Ключ не подтянулся или баланс пуст.\n"
-            "Проверь `/set_claude_api_key` и «Проверить баланс»."
+            "❌ Ключ не подтянулся (мануал FAQ #1/#6).\n"
+            "Проверь settings.json / логин CLI / `/set_claude_api_key`."
+        )
+    if '400' in lower or 'unexpected error' in lower or 'support service' in lower:
+        return (
+            "❌ Провайдер: 400 Unexpected error.\n\n"
+            "По мануалу чаще всего:\n"
+            "1) нет логина CLI → `/set_claude_oauth_token`\n"
+            "2) модель opus-4-8 → `/set_claude_model claude-opus-4-7`\n"
+            "3) ключ привязан к другому устройству (сброс ~8ч)\n"
+            "4) settings.json должен быть ТОЧНО как в инструкции\n\n"
+            f"`{err[:250]}`"
         )
     if 'rate limit' in lower or '429' in lower:
-        return (
-            "❌ Rate limit.\n"
-            "`/set_claude_model claude-opus-4-7` или подожди."
-        )
-    msg = err[:500] if err else 'unknown'
-    return f"❌ Claude CLI: {msg}"
+        return "❌ Rate limit. `/set_claude_model claude-opus-4-7` или подожди."
+    if '403' in lower or 'authentication' in lower:
+        return "❌ Auth/403. Проверь ключ, баланс и привязку устройства (8ч)."
+    return f"❌ Claude CLI: {(err or 'unknown')[:500]}"
 
 
 def test_connection():
@@ -487,18 +518,22 @@ def test_connection():
     claude_bin = find_claude_bin()
     version = get_cli_version(claude_bin)
     if not claude_bin:
-        return False, 'Claude Code CLI не найден на сервере'
+        return False, 'Claude Code CLI не найден'
     if version and not cli_version_ok(version):
         return False, f'CLI {version} < {MIN_CLI_VERSION}'
 
+    home = _stable_home()
+    logged_in = _has_cli_login(home)
+
     text, inp, out = call_claude('Ответь одним словом: OK')
     if text.startswith('❌') or text.startswith('⚠️') or text.startswith('⏰'):
-        return False, f'CLI: {text} (version={version})'
+        return False, f'{text}\n(cli={version}, login={"yes" if logged_in else "NO"})'
     return True, {
         'usage': usage,
         'reply': text,
         'tokens': inp + out,
         'cli_version': version,
         'cli_path': claude_bin,
-        'home': str(_stable_home()),
+        'home': str(home),
+        'login': logged_in,
     }

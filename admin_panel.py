@@ -744,6 +744,7 @@ async def admin_claude(update: Update, context: ContextTypes.DEFAULT_TYPE):
     from claude_api import (
         get_model_multiplier, DEFAULT_BASE_URL, DEFAULT_MODEL,
         find_claude_bin, get_cli_version, cli_version_ok, MIN_CLI_VERSION,
+        _stable_home, _has_cli_login,
     )
 
     api_key = get_setting('claude_api_key', 'Не настроен')
@@ -761,16 +762,22 @@ async def admin_claude(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         cli_status = f'⚠️ CLI {cli_ver or "?"} (нужно ≥{MIN_CLI_VERSION})'
 
+    home = _stable_home()
+    login_ok = _has_cli_login(home)
+    login_status = '✅ есть' if login_ok else '❌ нет (нужен шаг 2)'
+
     text = (
         "🔑 *Claude API (через Claude Code CLI)*\n\n"
         f"URL: `{api_url}`\n"
         f"Модель: `{model}` (×{mult})\n"
         f"CLI: {cli_status}\n"
+        f"Логин CLI: {login_status}\n"
         f"Путь: `{claude_bin or '—'}`\n"
         f"API Key: {'✅ Настроен' if key_ok else '❌ Не настроен'}\n\n"
-        "_Ключ провайдера работает ТОЛЬКО через Claude Code CLI._\n\n"
+        "_По мануалу: ключ работает ТОЛЬКО через Claude Code CLI + логин._\n\n"
         "*Команды:*\n"
         "`/set_claude_api_key KEY`\n"
+        "`/set_claude_oauth_token TOKEN`\n"
         "`/set_claude_model MODEL`\n"
         "`/set_claude_api_url URL`\n\n"
         "Модели: opus 1.0x · sonnet 0.7x · haiku 0.3x · fable 2.0x"
@@ -874,6 +881,7 @@ async def admin_price_command(update: Update, context: ContextTypes.DEFAULT_TYPE
         '/set_claude_api_url': 'claude_api_url',
         '/set_claude_client_version': 'claude_client_version',
         '/set_claude_anthropic_version': 'claude_anthropic_version',
+        '/set_claude_oauth_token': 'claude_oauth_token',
         '/set_subscription_tokens': 'subscription_tokens',
         '/set_subscription_days': 'subscription_days',
         '/set_referral_bonus': 'referral_bonus',
@@ -896,7 +904,7 @@ async def admin_price_command(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     try:
         set_setting(key, value)
-        display = '***' if 'api_key' in key else value
+        display = '***' if ('api_key' in key or 'oauth_token' in key or 'token' in key) else value
         await update.message.reply_text(f"✅ `{key}` обновлено: `{display}`", parse_mode='Markdown')
         log_action(user_id, 'admin_setting', f'{key}={display}')
     except Exception as e:

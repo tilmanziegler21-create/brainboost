@@ -96,6 +96,7 @@ def init_db():
         ('claude_api_url', 'https://claude-code-cli.vibecode-claude.online', 'URL API провайдера'),
         ('claude_client_version', '2.1.205', 'Версия Claude Code CLI (User-Agent)'),
         ('claude_anthropic_version', '2023-06-01', 'Заголовок anthropic-version'),
+        ('claude_oauth_token', '', 'OAuth/setup-token Claude Code (логин шага 2)'),
         ('price_eur', '25', 'Цена в EUR'),
         ('price_usd', '27', 'Цена в USD'),
         ('price_uah', '1050', 'Цена в UAH'),

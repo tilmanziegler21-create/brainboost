@@ -32,16 +32,24 @@ python main.py
 ## Claude / провайдер
 
 Ключ от `claude-code-cli.vibecode-claude.online` работает **только через Claude Code CLI**
-(не через обычный HTTP `/v1/messages`).
+(не через обычный HTTP). По мануалу нужны:
 
-Docker-образ ставит CLI автоматически. После деплоя:
+1. Claude Code CLI ≥ **2.1.150** (ставится в Docker)
+2. **Логин** в Claude Code (даже бесплатный аккаунт) — шаг 2 мануала
+3. `settings.json` **строго** как в инструкции (без лишних полей)
+4. Ключ провайдера
+
+После деплоя:
 
 ```
 /set_claude_api_key sk-ant-cap01-XXXXX
-/admin → Claude API → Тест соединения
+/set_claude_oauth_token ТОКЕН_ИЗ_claude_setup-token
+/set_claude_model claude-opus-4-7
 ```
 
-Минимальная версия CLI: **2.1.150+**. Баланс: `/v1/usage` с заголовком `X-Api-Key`.
+Затем `/admin` → Claude API → Тест соединения.
+
+Баланс: `GET /v1/usage` с заголовком `X-Api-Key`.
 
 
 ## Docker
