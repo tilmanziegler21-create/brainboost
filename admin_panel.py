@@ -658,7 +658,12 @@ async def prompt_category_callback(update: Update, context: ContextTypes.DEFAULT
             [InlineKeyboardButton("✏️ Редактировать", callback_data=f"edit_prompt_{p['id']}")],
             [InlineKeyboardButton("🗑️ Удалить", callback_data=f"del_prompt_{p['id']}")],
         ])
-        text = f"📝 *{p['title']}*\n\n`{truncate(p['prompt_text'], 200)}`"
+        icon = p.get('icon') or '📌'
+        desc = p.get('description') or ''
+        text = f"{icon} *{p['title']}*\n"
+        if desc:
+            text += f"{desc}\n"
+        text += f"\n`{truncate(p['prompt_text'], 200)}`"
         await query.message.reply_text(text, reply_markup=keyboard, parse_mode='Markdown')
 
 
@@ -670,12 +675,15 @@ async def prompt_add_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     context.user_data['admin_action'] = 'add_prompt'
     await query.edit_message_text(
-        "📝 *Добавление нового промта*\n\n"
-        "Отправь сообщение в формате:\n"
-        "`Категория | Название | Текст промта`\n\n"
+        "📝 *Добавление промта (магазин)*\n\n"
+        "Формат (через `|`):\n"
+        "`категория | название | описание | system | шаблон | vars | иконка`\n\n"
         "Пример:\n"
-        "`marketing | Пост для Instagram | Напиши 5 вариантов поста...`\n\n"
-        "Категории: marketing, study, fitness, code, business, creativity, life\n"
+        "`marketing | Instagram пост | 5 вариантов | Ты SMM... | "
+        "Напиши 5 постов на тему: {topic} | topic | 📸`\n\n"
+        "Категории: marketing, code, study, health, business, creativity, life\n"
+        "vars: через запятую, напр. `topic,style`\n"
+        "Минимум 3 поля: категория | название | шаблон\n"
         "Отмена: /cancel",
         parse_mode='Markdown',
     )
@@ -1049,18 +1057,55 @@ async def admin_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     if action == 'add_prompt':
         try:
-            parts = update.message.text.split('|')
-            if len(parts) >= 3:
-                category = parts[0].strip().lower()
-                title = parts[1].strip()
-                prompt_text = '|'.join(parts[2:]).strip()
-                prompt_id = add_prompt(category, title, prompt_text)
-                await update.message.reply_text(f"✅ Промт добавлен! ID: {prompt_id}")
-                context.user_data.pop('admin_action', None)
-            else:
+            parts = [p.strip() for p in update.message.text.split('|')]
+            if len(parts) < 3:
                 await update.message.reply_text(
-                    "❌ Неверный формат. Используй: Категория | Название | Текст"
+                    "❌ Минимум: `категория | название | шаблон`\n"
+                    "Полный: `кат | имя | описание | system | шаблон | vars | иконка`",
+                    parse_mode='Markdown',
                 )
+                return True
+
+            category = parts[0].lower()
+            title = parts[1]
+
+            # Короткий формат: cat | title | template
+            if len(parts) == 3:
+                description = None
+                system_prompt = None
+                prompt_text = parts[2]
+                variables = ['topic']
+                icon = '📌'
+            elif len(parts) == 4:
+                description = parts[2]
+                system_prompt = None
+                prompt_text = parts[3]
+                variables = ['topic']
+                icon = '📌'
+            else:
+                # Полный: cat | title | desc | system | template | vars | icon
+                description = parts[2] or None
+                system_prompt = parts[3] or None
+                prompt_text = parts[4] if len(parts) > 4 else ''
+                variables = [v.strip() for v in (parts[5] if len(parts) > 5 else 'topic').split(',') if v.strip()]
+                icon = parts[6] if len(parts) > 6 and parts[6] else '📌'
+
+            if not prompt_text:
+                await update.message.reply_text("❌ Пустой шаблон промта")
+                return True
+
+            prompt_id = add_prompt(
+                category, title, prompt_text,
+                description=description,
+                system_prompt=system_prompt,
+                variables=variables or ['topic'],
+                icon=icon,
+            )
+            await update.message.reply_text(
+                f"✅ Промт добавлен! ID: {prompt_id}\n"
+                f"📂 {category} | {icon} {title}"
+            )
+            context.user_data.pop('admin_action', None)
         except Exception as e:
             await update.message.reply_text(f"❌ Ошибка: {str(e)}")
         return True

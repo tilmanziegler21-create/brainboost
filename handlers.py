@@ -6,6 +6,7 @@ from database import (
     get_user, create_user, get_remaining_tokens, get_tokens_limit,
     update_tokens_used, log_action, get_setting, get_user_by_referral_code,
     get_prompts_by_category, get_prompt, check_and_expire_subscriptions,
+    get_popular_prompts, parse_prompt_variables, increment_prompt_usage,
 )
 from claude_api import call_claude
 from keyboards import (
@@ -14,7 +15,7 @@ from keyboards import (
 )
 from payment import buy, handle_screenshot, handle_txid_text
 from admin_panel import admin_text_handler, is_admin
-from prompts_data import CATEGORY_NAMES
+from prompts_data import CATEGORY_NAMES, CATEGORY_ALIASES, get_var_hint
 from utils import format_tokens, format_token_bar, format_status, is_true, truncate
 
 
@@ -194,7 +195,7 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/help — эта справка\n\n"
         "*Как пользоваться:*\n"
         "1. Просто напиши вопрос боту\n"
-        "2. Или выбери готовый промт из меню\n"
+        "2. Или открой *📋 Промты* — готовые шаблоны под задачи\n"
         "3. На пробном периоде — ограниченное число запросов\n"
         "4. Подписка даёт миллионы токенов на 30 дней\n\n"
         "*Оплата:*\n"
@@ -217,7 +218,9 @@ async def main_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     await query.answer()
     context.user_data.pop('awaiting_ai', None)
     context.user_data.pop('awaiting_prompt_topic', None)
+    context.user_data.pop('awaiting_prompt_vars', None)
     context.user_data.pop('selected_prompt_id', None)
+    context.user_data.pop('prompt_var_values', None)
     context.user_data.pop('awaiting_screenshot', None)
 
     user = await ensure_user(update)
@@ -265,8 +268,14 @@ async def prompts_menu_callback(update: Update, context: ContextTypes.DEFAULT_TY
     if await check_maintenance(update):
         return
 
+    context.user_data.pop('awaiting_prompt_vars', None)
+    context.user_data.pop('awaiting_prompt_topic', None)
+    context.user_data.pop('selected_prompt_id', None)
+    context.user_data.pop('prompt_var_values', None)
+
     await query.edit_message_text(
-        "📝 *Готовые промты*\n\nВыбери категорию:",
+        "📋 *Магазин промтов*\n\n"
+        "Готовые шаблоны под задачи — выбери категорию:",
         reply_markup=prompts_categories_keyboard(),
         parse_mode='Markdown',
     )
@@ -277,8 +286,13 @@ async def user_category_callback(update: Update, context: ContextTypes.DEFAULT_T
     await query.answer()
 
     category = query.data.replace('user_cat_', '')
-    prompts = get_prompts_by_category(category)
-    name = CATEGORY_NAMES.get(category, category)
+    if category == 'popular':
+        prompts = get_popular_prompts(12)
+        name = '🔥 Популярные'
+    else:
+        category = CATEGORY_ALIASES.get(category, category)
+        prompts = get_prompts_by_category(category)
+        name = CATEGORY_NAMES.get(category, category)
 
     if not prompts:
         await query.edit_message_text(
@@ -307,53 +321,86 @@ async def prompt_use_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     prompt_id = int(query.data.replace('use_prompt_', ''))
     prompt = get_prompt(prompt_id)
-    if not prompt:
+    if not prompt or not prompt.get('is_active', 1):
         await query.edit_message_text("❌ Промт не найден", reply_markup=back_to_menu_keyboard())
         return
 
-    context.user_data['awaiting_prompt_topic'] = True
+    variables = parse_prompt_variables(prompt)
+    icon = prompt.get('icon') or '📌'
+    title = prompt.get('title') or 'Промт'
+    desc = prompt.get('description') or ''
+
     context.user_data['selected_prompt_id'] = prompt_id
+    context.user_data['prompt_var_values'] = {}
+    context.user_data.pop('awaiting_prompt_topic', None)
 
-    await query.edit_message_text(
-        f"📌 *{prompt['title']}*\n\n"
-        f"Шаблон:\n_{truncate(prompt['prompt_text'], 300)}_\n\n"
-        "✍️ Напиши тему / детали для подстановки в `{topic}`:",
-        reply_markup=cancel_keyboard(),
-        parse_mode='Markdown',
+    if not variables:
+        # Нет переменных — сразу выполняем
+        context.user_data.pop('awaiting_prompt_vars', None)
+        await query.edit_message_text(f"{icon} *{title}*\n\n⏳ Генерирую...", parse_mode='Markdown')
+        await execute_store_prompt(update, context, prompt, {})
+        return
+
+    # Пошаговый ввод переменных
+    context.user_data['awaiting_prompt_vars'] = variables
+    first = variables[0]
+    if desc:
+        text = f"{icon} *{title}*\n\n{desc}\n\n"
+    else:
+        text = f"{icon} *{title}*\n\n"
+    text += (
+        f"✏️ *Шаг 1/{len(variables)}*\n"
+        f"Введи: *{get_var_hint(first)}* (`{first}`)\n\n"
+        f"Или одним сообщением через `|`:\n"
+        f"`{' | '.join(variables)}`"
     )
+    await query.edit_message_text(text, reply_markup=cancel_keyboard(), parse_mode='Markdown')
 
 
-async def process_ai_request(update: Update, context: ContextTypes.DEFAULT_TYPE, prompt_text: str):
+async def process_ai_request(
+    update: Update,
+    context: ContextTypes.DEFAULT_TYPE,
+    prompt_text: str,
+    system_prompt=None,
+    prompt_id=None,
+):
     """Общая логика запроса к Claude с учётом лимитов"""
     user = await ensure_user(update)
     ok, msg = await check_access(user)
     if not ok:
-        await update.message.reply_text(msg, reply_markup=back_to_menu_keyboard())
+        target = update.message or (update.callback_query.message if update.callback_query else None)
+        if target:
+            await target.reply_text(msg, reply_markup=back_to_menu_keyboard())
         return
 
-    wait_msg = await update.message.reply_text("⏳ Думаю...")
+    reply_target = update.message
+    if not reply_target and update.callback_query:
+        reply_target = update.callback_query.message
+
+    wait_msg = await reply_target.reply_text("⏳ Думаю...")
 
     response_text, input_tokens, output_tokens = call_claude(
-        prompt_text, system_prompt=SYSTEM_PROMPT
+        prompt_text, system_prompt=system_prompt or SYSTEM_PROMPT
     )
     total_tokens = input_tokens + output_tokens
 
-    # Для trial считаем 1 запрос = 1 токен лимита
     if user['subscription_status'] != 'active':
         tokens_to_charge = 1
     else:
         tokens_to_charge = max(1, total_tokens)
 
     update_tokens_used(user['user_id'], tokens_to_charge)
+    if prompt_id:
+        increment_prompt_usage(prompt_id)
     log_action(
         user['user_id'],
         'request',
-        f'in={input_tokens} out={output_tokens} charged={tokens_to_charge}',
+        f'in={input_tokens} out={output_tokens} charged={tokens_to_charge}'
+        + (f' prompt={prompt_id}' if prompt_id else ''),
     )
 
     remaining = get_remaining_tokens(user['user_id'])
 
-    # Telegram limit ~4096
     chunks = []
     text = response_text
     while len(text) > 4000:
@@ -371,7 +418,22 @@ async def process_ai_request(update: Update, context: ContextTypes.DEFAULT_TYPE,
             footer = f"\n\n🎟 Осталось: {format_tokens(remaining)}"
             if len(chunk) + len(footer) < 4096:
                 chunk += footer
-        await update.message.reply_text(chunk)
+        await reply_target.reply_text(chunk)
+
+
+async def execute_store_prompt(update, context, prompt, var_dict):
+    """Собрать шаблон магазина промтов и отправить в Claude"""
+    template = prompt.get('prompt_text') or ''
+    user_prompt = template
+    for k, v in (var_dict or {}).items():
+        user_prompt = user_prompt.replace('{' + str(k) + '}', str(v))
+
+    system = prompt.get('system_prompt') or SYSTEM_PROMPT
+    await process_ai_request(
+        update, context, user_prompt,
+        system_prompt=system,
+        prompt_id=prompt.get('id'),
+    )
 
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -379,37 +441,98 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if await check_maintenance(update):
         return
 
-    # Админские действия (рассылка, промты и т.д.)
     if await admin_text_handler(update, context):
         return
 
-    # TXID для USDT
     if await handle_txid_text(update, context):
         return
 
-    # Тема для промта
+    # Магазин промтов — ввод переменных
+    if context.user_data.get('awaiting_prompt_vars'):
+        await _handle_prompt_variables_input(update, context)
+        return
+
+    # Совместимость со старым флагом
     if context.user_data.get('awaiting_prompt_topic'):
         prompt_id = context.user_data.get('selected_prompt_id')
         prompt = get_prompt(prompt_id) if prompt_id else None
         context.user_data.pop('awaiting_prompt_topic', None)
         context.user_data.pop('selected_prompt_id', None)
-
         if not prompt:
             await update.message.reply_text("❌ Промт не найден", reply_markup=back_to_menu_keyboard())
             return
-
-        topic = update.message.text
-        final_prompt = prompt['prompt_text'].replace('{topic}', topic)
-        await process_ai_request(update, context, final_prompt)
+        await execute_store_prompt(update, context, prompt, {'topic': update.message.text.strip()})
         return
 
-    # Режим "Спросить AI" или обычное сообщение
     text = update.message.text
     if not text or not text.strip():
         return
 
     context.user_data.pop('awaiting_ai', None)
     await process_ai_request(update, context, text.strip())
+
+
+async def _handle_prompt_variables_input(update, context):
+    variables = context.user_data.get('awaiting_prompt_vars') or []
+    prompt_id = context.user_data.get('selected_prompt_id')
+    prompt = get_prompt(prompt_id) if prompt_id else None
+    if not prompt or not variables:
+        context.user_data.pop('awaiting_prompt_vars', None)
+        await update.message.reply_text("⚠️ Выбери промт заново из меню.", reply_markup=back_to_menu_keyboard())
+        return
+
+    raw = (update.message.text or '').strip()
+    values = context.user_data.setdefault('prompt_var_values', {})
+
+    # Ввод всех переменных через |
+    if '|' in raw and len([v for v in raw.split('|') if v.strip()]) >= len(variables):
+        parts = [v.strip() for v in raw.split('|')]
+        if len(parts) < len(variables):
+            await update.message.reply_text(
+                f"❌ Нужно {len(variables)} значений через `|`.\n"
+                f"Пример: `{' | '.join(['…'] * len(variables))}`",
+                parse_mode='Markdown',
+            )
+            return
+        for i, var in enumerate(variables):
+            values[var] = parts[i]
+        context.user_data.pop('awaiting_prompt_vars', None)
+        context.user_data.pop('selected_prompt_id', None)
+        context.user_data.pop('prompt_var_values', None)
+        await update.message.reply_text("⏳ Генерирую по шаблону...")
+        await execute_store_prompt(update, context, prompt, values)
+        return
+
+    # Пошаговый ввод
+    next_var = None
+    for var in variables:
+        if var not in values:
+            next_var = var
+            break
+    if not next_var:
+        context.user_data.pop('awaiting_prompt_vars', None)
+        await execute_store_prompt(update, context, prompt, values)
+        return
+
+    values[next_var] = raw
+    remaining = [v for v in variables if v not in values]
+    if remaining:
+        step = len(variables) - len(remaining) + 1
+        nxt = remaining[0]
+        await update.message.reply_text(
+            f"✅ Принято.\n\n"
+            f"✏️ *Шаг {step}/{len(variables)}*\n"
+            f"Введи: *{get_var_hint(nxt)}* (`{nxt}`)",
+            parse_mode='Markdown',
+            reply_markup=cancel_keyboard(),
+        )
+        return
+
+    context.user_data.pop('awaiting_prompt_vars', None)
+    context.user_data.pop('selected_prompt_id', None)
+    context.user_data.pop('prompt_var_values', None)
+    await update.message.reply_text("⏳ Генерирую по шаблону...")
+    await execute_store_prompt(update, context, prompt, values)
 
 
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):

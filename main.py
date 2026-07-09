@@ -49,9 +49,9 @@ def main():
 
     # Инициализация БД
     init_db()
-    seeded = seed_prompts()
+    seeded = seed_prompts(force_upgrade=False)
     if seeded:
-        logger.info(f"Загружено промтов: {seeded}")
+        logger.info(f"Загружено/обновлено промтов магазина: {seeded}")
 
     app = Application.builder().token(BOT_TOKEN).build()
 

@@ -57,9 +57,14 @@ def init_db():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             category TEXT,
             title TEXT,
+            description TEXT,
+            system_prompt TEXT,
             prompt_text TEXT,
+            variables TEXT DEFAULT '["topic"]',
+            icon TEXT DEFAULT '📌',
             is_active INTEGER DEFAULT 1,
             sort_order INTEGER DEFAULT 0,
+            usage_count INTEGER DEFAULT 0,
             created_at TEXT DEFAULT CURRENT_TIMESTAMP
         );
 
@@ -155,6 +160,33 @@ def init_db():
             "WHERE setting_key = 'claude_model'",
             ('claude-opus-4-7',),
         )
+
+    # Миграция таблицы prompts → магазин промтов
+    prompt_cols = {
+        r[1] for r in cursor.execute('PRAGMA table_info(prompts)').fetchall()
+    }
+    alter_map = {
+        'description': "ALTER TABLE prompts ADD COLUMN description TEXT",
+        'system_prompt': "ALTER TABLE prompts ADD COLUMN system_prompt TEXT",
+        'variables': "ALTER TABLE prompts ADD COLUMN variables TEXT DEFAULT '[\"topic\"]'",
+        'icon': "ALTER TABLE prompts ADD COLUMN icon TEXT DEFAULT '📌'",
+        'usage_count': "ALTER TABLE prompts ADD COLUMN usage_count INTEGER DEFAULT 0",
+    }
+    for col, sql in alter_map.items():
+        if col not in prompt_cols:
+            cursor.execute(sql)
+
+    # Старые промты без variables → topic
+    cursor.execute('''
+        UPDATE prompts
+        SET variables = '["topic"]'
+        WHERE variables IS NULL OR variables = ''
+    ''')
+    cursor.execute('''
+        UPDATE prompts
+        SET icon = '📌'
+        WHERE icon IS NULL OR icon = ''
+    ''')
 
     conn.commit()
     conn.close()
@@ -671,13 +703,33 @@ def get_low_token_users(threshold_percent=80, limit=10):
 
 # --- Работа с промтами ---
 
-def add_prompt(category, title, prompt_text, sort_order=0):
+def add_prompt(
+    category,
+    title,
+    prompt_text,
+    sort_order=0,
+    description=None,
+    system_prompt=None,
+    variables=None,
+    icon='📌',
+):
+    import json as _json
     conn = get_db_connection()
     cursor = conn.cursor()
+    if isinstance(variables, (list, tuple)):
+        variables = _json.dumps(list(variables), ensure_ascii=False)
+    elif not variables:
+        variables = '["topic"]'
     cursor.execute('''
-        INSERT INTO prompts (category, title, prompt_text, sort_order)
-        VALUES (?, ?, ?, ?)
-    ''', (category, title, prompt_text, sort_order))
+        INSERT INTO prompts (
+            category, title, description, system_prompt, prompt_text,
+            variables, icon, sort_order
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    ''', (
+        category, title, description, system_prompt, prompt_text,
+        variables, icon or '📌', sort_order,
+    ))
     conn.commit()
     prompt_id = cursor.lastrowid
     conn.close()
@@ -691,6 +743,18 @@ def get_prompts_by_category(category):
         WHERE category = ? AND is_active = 1
         ORDER BY sort_order, id
     ''', (category,)).fetchall()
+    conn.close()
+    return [dict(p) for p in prompts]
+
+
+def get_popular_prompts(limit=10):
+    conn = get_db_connection()
+    prompts = conn.execute('''
+        SELECT * FROM prompts
+        WHERE is_active = 1
+        ORDER BY usage_count DESC, sort_order, id
+        LIMIT ?
+    ''', (limit,)).fetchall()
     conn.close()
     return [dict(p) for p in prompts]
 
@@ -711,7 +775,35 @@ def get_prompt(prompt_id):
     return dict(prompt) if prompt else None
 
 
-def update_prompt(prompt_id, title=None, prompt_text=None, is_active=None, sort_order=None):
+def parse_prompt_variables(prompt):
+    """Список переменных промта из JSON / строки"""
+    import json as _json
+    raw = (prompt or {}).get('variables') if isinstance(prompt, dict) else prompt
+    if not raw:
+        return ['topic']
+    if isinstance(raw, list):
+        return raw
+    try:
+        data = _json.loads(raw)
+        if isinstance(data, list) and data:
+            return [str(x) for x in data]
+    except Exception:
+        pass
+    return ['topic']
+
+
+def update_prompt(
+    prompt_id,
+    title=None,
+    prompt_text=None,
+    is_active=None,
+    sort_order=None,
+    description=None,
+    system_prompt=None,
+    variables=None,
+    icon=None,
+):
+    import json as _json
     conn = get_db_connection()
     updates = []
     params = []
@@ -728,12 +820,36 @@ def update_prompt(prompt_id, title=None, prompt_text=None, is_active=None, sort_
     if sort_order is not None:
         updates.append('sort_order = ?')
         params.append(sort_order)
+    if description is not None:
+        updates.append('description = ?')
+        params.append(description)
+    if system_prompt is not None:
+        updates.append('system_prompt = ?')
+        params.append(system_prompt)
+    if variables is not None:
+        if isinstance(variables, (list, tuple)):
+            variables = _json.dumps(list(variables), ensure_ascii=False)
+        updates.append('variables = ?')
+        params.append(variables)
+    if icon is not None:
+        updates.append('icon = ?')
+        params.append(icon)
 
     if updates:
         params.append(prompt_id)
         conn.execute(f'UPDATE prompts SET {", ".join(updates)} WHERE id = ?', params)
         conn.commit()
 
+    conn.close()
+
+
+def increment_prompt_usage(prompt_id):
+    conn = get_db_connection()
+    conn.execute(
+        'UPDATE prompts SET usage_count = COALESCE(usage_count, 0) + 1 WHERE id = ?',
+        (prompt_id,),
+    )
+    conn.commit()
     conn.close()
 
 
@@ -758,6 +874,20 @@ def count_prompts():
     count = conn.execute('SELECT COUNT(*) FROM prompts').fetchone()[0]
     conn.close()
     return count
+
+
+def reseed_prompts_if_outdated():
+    """
+    Если в БД старые промты без system_prompt/description —
+    помечаем флаг, чтобы seed мог обновить (вызывается из prompts_data).
+    """
+    conn = get_db_connection()
+    total = conn.execute('SELECT COUNT(*) FROM prompts').fetchone()[0]
+    with_system = conn.execute(
+        "SELECT COUNT(*) FROM prompts WHERE system_prompt IS NOT NULL AND system_prompt != ''"
+    ).fetchone()[0]
+    conn.close()
+    return total, with_system
 
 
 # --- Логирование ---

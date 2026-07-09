@@ -7,7 +7,7 @@ from prompts_data import CATEGORY_NAMES
 def main_menu_keyboard(is_admin=False):
     rows = [
         [InlineKeyboardButton("💬 Спросить AI", callback_data="ask_ai")],
-        [InlineKeyboardButton("📝 Готовые промты", callback_data="prompts_menu")],
+        [InlineKeyboardButton("📋 Промты", callback_data="prompts_menu")],
         [
             InlineKeyboardButton("👤 Профиль", callback_data="profile"),
             InlineKeyboardButton("💳 Купить", callback_data="buy"),
@@ -50,8 +50,15 @@ def i_paid_keyboard(order_id):
 
 def prompts_categories_keyboard():
     buttons = []
-    for key, name in CATEGORY_NAMES.items():
-        buttons.append([InlineKeyboardButton(name, callback_data=f"user_cat_{key}")])
+    row = []
+    for i, (key, name) in enumerate(CATEGORY_NAMES.items()):
+        row.append(InlineKeyboardButton(name, callback_data=f"user_cat_{key}"))
+        if len(row) == 2:
+            buttons.append(row)
+            row = []
+    if row:
+        buttons.append(row)
+    buttons.append([InlineKeyboardButton("🔥 Популярные", callback_data="user_cat_popular")])
     buttons.append([InlineKeyboardButton("⬅️ Назад", callback_data="main_menu")])
     return InlineKeyboardMarkup(buttons)
 
@@ -59,10 +66,20 @@ def prompts_categories_keyboard():
 def prompts_list_keyboard(prompts, category):
     buttons = []
     for p in prompts:
+        icon = p.get('icon') or '📌'
+        title = p.get('title') or 'Промт'
+        desc = (p.get('description') or '').strip()
+        label = f"{icon} {title}"
+        if desc:
+            short = desc if len(desc) <= 40 else desc[:37] + '...'
+            label = f"{icon} {title} — {short}"
+        if len(label) > 64:
+            label = label[:61] + '...'
         buttons.append([
-            InlineKeyboardButton(f"📌 {p['title']}", callback_data=f"use_prompt_{p['id']}")
+            InlineKeyboardButton(label, callback_data=f"use_prompt_{p['id']}")
         ])
-    buttons.append([InlineKeyboardButton("⬅️ К категориям", callback_data="prompts_menu")])
+    back = "prompts_menu" if category == 'popular' else "prompts_menu"
+    buttons.append([InlineKeyboardButton("⬅️ К категориям", callback_data=back)])
     return InlineKeyboardMarkup(buttons)
 
 
