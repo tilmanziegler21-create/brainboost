@@ -349,17 +349,9 @@ def call_claude(prompt, system_prompt=None, max_tokens=4096):
 
     home_dir = _stable_home()
     _write_settings(home_dir, api_key, base_url)
+    # OAuth опционален: setup-token требует Max/Pro.
+    # По мануалу достаточно settings.json + ключ; логин CLI — если CLI сам просит.
     _apply_oauth_token(home_dir)
-
-    if not _has_cli_login(home_dir):
-        return (
-            "⚠️ По мануалу нужен логин Claude Code (шаг 2), даже бесплатный аккаунт.\n\n"
-            "На сервере задай OAuth-токен:\n"
-            "`/set_claude_oauth_token ТВОЙ_ТОКЕН`\n\n"
-            "Как получить: локально `claude setup-token` или скопируй токен из сессии CLI.\n"
-            "Без логина ключ провайдера «не подтягивается» (FAQ #1/#5/#6).",
-            0, 0,
-        )
 
     env = _provider_env(api_key, base_url, home_dir)
     work_dir = tempfile.mkdtemp(prefix='bb_claude_work_')
@@ -493,14 +485,20 @@ def _friendly_cli_error(err):
             "❌ Ключ не подтянулся (мануал FAQ #1/#6).\n"
             "Проверь settings.json / логин CLI / `/set_claude_api_key`."
         )
+    if 'device limit' in lower:
+        return (
+            "❌ Ключ достиг лимита устройств (обычно 3 за 24ч).\n"
+            "Подожди сброса (~сутки) или возьми новый ключ.\n"
+            "Не гоняй тест с разных HOME/машин — каждое считается устройством.\n\n"
+            f"`{err[:250]}`"
+        )
     if '400' in lower or 'unexpected error' in lower or 'support service' in lower:
         return (
-            "❌ Провайдер: 400 Unexpected error.\n\n"
-            "По мануалу чаще всего:\n"
-            "1) нет логина CLI → `/set_claude_oauth_token`\n"
+            "❌ Провайдер: 400.\n\n"
+            "Частые причины:\n"
+            "1) device limit (3 устройства / 24ч)\n"
             "2) модель opus-4-8 → `/set_claude_model claude-opus-4-7`\n"
-            "3) ключ привязан к другому устройству (сброс ~8ч)\n"
-            "4) settings.json должен быть ТОЧНО как в инструкции\n\n"
+            "3) settings.json не как в мануале\n\n"
             f"`{err[:250]}`"
         )
     if 'rate limit' in lower or '429' in lower:
