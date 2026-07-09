@@ -741,11 +741,14 @@ async def admin_claude(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(query.from_user.id):
         return
 
-    from claude_api import get_model_multiplier, DEFAULT_BASE_URL, DEFAULT_MODEL
+    from claude_api import (
+        get_model_multiplier, DEFAULT_BASE_URL, DEFAULT_MODEL, DEFAULT_CLIENT_VERSION,
+    )
 
     api_key = get_setting('claude_api_key', 'Не настроен')
     model = get_setting('claude_model', DEFAULT_MODEL)
     api_url = get_setting('claude_api_url', DEFAULT_BASE_URL)
+    client_ver = get_setting('claude_client_version', DEFAULT_CLIENT_VERSION)
     mult = get_model_multiplier(model)
     key_ok = api_key and api_key not in ('sk-ant-api-xxx', 'Не настроен')
 
@@ -753,12 +756,15 @@ async def admin_claude(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "🔑 *Claude API (провайдер)*\n\n"
         f"URL: `{api_url}`\n"
         f"Модель: `{model}` (×{mult})\n"
+        f"CLI version: `{client_ver}`\n"
         f"API Key: {'✅ Настроен' if key_ok else '❌ Не настроен'}\n\n"
         "*Команды:*\n"
         "`/set_claude_api_key KEY`\n"
         "`/set_claude_model MODEL`\n"
-        "`/set_claude_api_url URL`\n\n"
-        "Модели: opus 1.0x · sonnet 0.7x · haiku 0.3x · fable 2.0x"
+        "`/set_claude_api_url URL`\n"
+        "`/set_claude_client_version 2.1.205`\n\n"
+        "Модели: opus 1.0x · sonnet 0.7x · haiku 0.3x · fable 2.0x\n"
+        "_Если ошибка «please run claude update» — обнови CLI version._"
     )
     await query.edit_message_text(
         text,
@@ -856,6 +862,8 @@ async def admin_price_command(update: Update, context: ContextTypes.DEFAULT_TYPE
         '/set_claude_api_key': 'claude_api_key',
         '/set_claude_model': 'claude_model',
         '/set_claude_api_url': 'claude_api_url',
+        '/set_claude_client_version': 'claude_client_version',
+        '/set_claude_anthropic_version': 'claude_anthropic_version',
         '/set_subscription_tokens': 'subscription_tokens',
         '/set_subscription_days': 'subscription_days',
         '/set_referral_bonus': 'referral_bonus',

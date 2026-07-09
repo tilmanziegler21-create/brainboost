@@ -4,6 +4,9 @@ from database import get_setting
 # Провайдер Claude Code CLI (прокси)
 DEFAULT_BASE_URL = 'https://claude-code-cli.vibecode-claude.online'
 DEFAULT_MODEL = 'claude-opus-4-8'
+# Версия клиента, которую эмулируем (актуальный Claude Code)
+DEFAULT_CLIENT_VERSION = '2.1.205'
+DEFAULT_ANTHROPIC_VERSION = '2023-06-01'
 
 # Коэффициенты расхода токенов у провайдера
 MODEL_MULTIPLIERS = {
@@ -32,23 +35,53 @@ def get_claude_config():
             base_url = base_url[: -len(suffix)]
             break
     model = get_setting('claude_model', DEFAULT_MODEL)
-    return api_key, base_url, model
+    client_version = get_setting('claude_client_version', DEFAULT_CLIENT_VERSION)
+    anthropic_version = get_setting('claude_anthropic_version', DEFAULT_ANTHROPIC_VERSION)
+    return api_key, base_url, model, client_version, anthropic_version
 
 
-def _auth_headers(api_key):
-    """Заголовки для провайдера (X-Api-Key) + совместимость с Anthropic"""
+def _auth_headers(api_key, client_version=None, anthropic_version=None):
+    """
+    Заголовки как у Claude Code CLI + Anthropic API.
+    Провайдер может отклонять запросы без «свежей» версии клиента
+    (ошибка: please run claude update).
+    """
+    client_version = client_version or DEFAULT_CLIENT_VERSION
+    anthropic_version = anthropic_version or DEFAULT_ANTHROPIC_VERSION
     return {
         'X-Api-Key': api_key,
         'x-api-key': api_key,
-        'anthropic-version': '2023-06-01',
+        'anthropic-version': anthropic_version,
         'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'User-Agent': f'claude-code/{client_version}',
+        'x-app': 'cli',
+        'x-app-name': 'claude-code',
+        'x-app-ver': client_version,
+        'x-service-name': 'claude-code',
     }
 
 
 def get_model_multiplier(model=None):
     if model is None:
-        _, _, model = get_claude_config()
+        _, _, model, _, _ = get_claude_config()
     return MODEL_MULTIPLIERS.get(model, 1.0)
+
+
+def _friendly_api_error(status_code, error_msg):
+    """Понятные подсказки для типичных ошибок провайдера"""
+    lower = (error_msg or '').lower()
+    if 'claude update' in lower or 'needs an update' in lower or 'newer version' in lower:
+        return (
+            f"❌ Провайдер отклонил версию клиента.\n"
+            f"В боте уже эмулируется Claude Code {DEFAULT_CLIENT_VERSION}.\n"
+            f"Попробуй: /set_claude_client_version {DEFAULT_CLIENT_VERSION}\n"
+            f"Или смени модель: /set_claude_model claude-sonnet-4-6\n\n"
+            f"Детали: {error_msg}"
+        )
+    if 'authentication' in lower or status_code in (401, 403):
+        return f"❌ Ключ отклонён ({status_code}): {error_msg}"
+    return f"❌ Ошибка API: {status_code} - {error_msg}"
 
 
 def check_usage():
@@ -56,14 +89,18 @@ def check_usage():
     Проверить баланс/лимиты ключа через /v1/usage
     Возвращает: (ok: bool, data: dict | str)
     """
-    api_key, base_url, _ = get_claude_config()
+    api_key, base_url, _, client_version, anthropic_version = get_claude_config()
 
     if not api_key or api_key in ('sk-ant-api-xxx', 'Не настроен'):
         return False, 'API ключ не настроен'
 
     url = f'{base_url}/v1/usage'
     try:
-        response = requests.get(url, headers=_auth_headers(api_key), timeout=20)
+        response = requests.get(
+            url,
+            headers=_auth_headers(api_key, client_version, anthropic_version),
+            timeout=20,
+        )
         if response.status_code == 200:
             return True, response.json()
         try:
@@ -85,7 +122,6 @@ def format_usage_text(data):
 
     lines = ['💳 *Баланс провайдера*\n']
 
-    # Разные возможные форматы ответа
     for key, label in [
         ('balance', 'Баланс'),
         ('credits', 'Кредиты'),
@@ -105,7 +141,6 @@ def format_usage_text(data):
         if key in data and data[key] is not None:
             lines.append(f'• {label}: `{data[key]}`')
 
-    # Вложенные объекты
     for nest_key in ('usage', 'limits', 'account', 'data'):
         nested = data.get(nest_key)
         if isinstance(nested, dict):
@@ -115,7 +150,6 @@ def format_usage_text(data):
                     lines.append(f'• {k}: `{v}`')
 
     if len(lines) == 1:
-        # Неизвестный формат — покажем JSON кратко
         import json
         raw = json.dumps(data, ensure_ascii=False, indent=2)
         if len(raw) > 1500:
@@ -130,13 +164,13 @@ def call_claude(prompt, system_prompt=None, max_tokens=4096):
     Отправить запрос к Claude через провайдер
     Возвращает: (response_text, input_tokens, output_tokens)
     """
-    api_key, base_url, model = get_claude_config()
+    api_key, base_url, model, client_version, anthropic_version = get_claude_config()
 
     if not api_key or api_key in ('sk-ant-api-xxx', 'Не настроен'):
         return "⚠️ API ключ Claude не настроен. Обратитесь к администратору.", 0, 0
 
     url = f'{base_url}/v1/messages'
-    headers = _auth_headers(api_key)
+    headers = _auth_headers(api_key, client_version, anthropic_version)
 
     messages = [{'role': 'user', 'content': prompt}]
 
@@ -158,7 +192,6 @@ def call_claude(prompt, system_prompt=None, max_tokens=4096):
             text = _extract_text(result)
             input_tokens, output_tokens = _extract_usage(result, prompt, text)
 
-            # Учитываем коэффициент модели провайдера
             mult = get_model_multiplier(model)
             billed_in = int(input_tokens * mult)
             billed_out = int(output_tokens * mult)
@@ -173,7 +206,7 @@ def call_claude(prompt, system_prompt=None, max_tokens=4096):
             )
         except Exception:
             error_msg = response.text[:300]
-        return f"❌ Ошибка API: {response.status_code} - {error_msg}", 0, 0
+        return _friendly_api_error(response.status_code, error_msg), 0, 0
 
     except requests.exceptions.Timeout:
         return "⏰ Превышено время ожидания. Попробуй позже.", 0, 0
@@ -183,7 +216,6 @@ def call_claude(prompt, system_prompt=None, max_tokens=4096):
 
 def _extract_text(result):
     """Достать текст ответа из разных форматов"""
-    # Anthropic-совместимый: content[0].text
     content = result.get('content')
     if isinstance(content, list) and content:
         first = content[0]
@@ -192,7 +224,6 @@ def _extract_text(result):
         if isinstance(first, str):
             return first
 
-    # OpenAI-совместимый
     choices = result.get('choices')
     if isinstance(choices, list) and choices:
         msg = choices[0].get('message') or choices[0]

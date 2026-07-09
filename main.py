@@ -69,7 +69,8 @@ def main():
     admin_set_commands = [
         "set_price_eur", "set_price_usd", "set_price_uah",
         "set_free_requests", "set_claude_api_key", "set_claude_model",
-        "set_claude_api_url", "set_subscription_tokens", "set_subscription_days",
+        "set_claude_api_url", "set_claude_client_version", "set_claude_anthropic_version",
+        "set_subscription_tokens", "set_subscription_days",
         "set_referral_bonus", "set_max_referrals",
         "set_card_uah_number", "set_card_uah_bank", "set_card_uah_recipient",
         "set_card_eur_iban", "set_card_eur_bic", "set_card_eur_recipient",

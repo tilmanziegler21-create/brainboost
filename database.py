@@ -94,6 +94,8 @@ def init_db():
         ('claude_api_key', 'sk-ant-api-xxx', 'API ключ Claude'),
         ('claude_model', 'claude-opus-4-8', 'Модель Claude'),
         ('claude_api_url', 'https://claude-code-cli.vibecode-claude.online', 'URL API провайдера'),
+        ('claude_client_version', '2.1.205', 'Версия Claude Code CLI (User-Agent)'),
+        ('claude_anthropic_version', '2023-06-01', 'Заголовок anthropic-version'),
         ('price_eur', '25', 'Цена в EUR'),
         ('price_usd', '27', 'Цена в USD'),
         ('price_uah', '1050', 'Цена в UAH'),
