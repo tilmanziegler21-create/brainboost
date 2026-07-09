@@ -742,29 +742,38 @@ async def admin_claude(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     from claude_api import (
-        get_model_multiplier, DEFAULT_BASE_URL, DEFAULT_MODEL, DEFAULT_CLIENT_VERSION,
+        get_model_multiplier, DEFAULT_BASE_URL, DEFAULT_MODEL,
+        find_claude_bin, get_cli_version, cli_version_ok, MIN_CLI_VERSION,
     )
 
     api_key = get_setting('claude_api_key', 'Не настроен')
     model = get_setting('claude_model', DEFAULT_MODEL)
     api_url = get_setting('claude_api_url', DEFAULT_BASE_URL)
-    client_ver = get_setting('claude_client_version', DEFAULT_CLIENT_VERSION)
     mult = get_model_multiplier(model)
     key_ok = api_key and api_key not in ('sk-ant-api-xxx', 'Не настроен')
 
+    claude_bin = find_claude_bin()
+    cli_ver = get_cli_version(claude_bin) if claude_bin else None
+    if not claude_bin:
+        cli_status = '❌ CLI не установлен'
+    elif cli_ver and cli_version_ok(cli_ver):
+        cli_status = f'✅ CLI {cli_ver}'
+    else:
+        cli_status = f'⚠️ CLI {cli_ver or "?"} (нужно ≥{MIN_CLI_VERSION})'
+
     text = (
-        "🔑 *Claude API (провайдер)*\n\n"
+        "🔑 *Claude API (через Claude Code CLI)*\n\n"
         f"URL: `{api_url}`\n"
         f"Модель: `{model}` (×{mult})\n"
-        f"CLI version: `{client_ver}`\n"
+        f"CLI: {cli_status}\n"
+        f"Путь: `{claude_bin or '—'}`\n"
         f"API Key: {'✅ Настроен' if key_ok else '❌ Не настроен'}\n\n"
+        "_Ключ провайдера работает ТОЛЬКО через Claude Code CLI._\n\n"
         "*Команды:*\n"
         "`/set_claude_api_key KEY`\n"
         "`/set_claude_model MODEL`\n"
-        "`/set_claude_api_url URL`\n"
-        "`/set_claude_client_version 2.1.205`\n\n"
-        "Модели: opus 1.0x · sonnet 0.7x · haiku 0.3x · fable 2.0x\n"
-        "_Если ошибка «please run claude update» — обнови CLI version._"
+        "`/set_claude_api_url URL`\n\n"
+        "Модели: opus 1.0x · sonnet 0.7x · haiku 0.3x · fable 2.0x"
     )
     await query.edit_message_text(
         text,
@@ -796,9 +805,9 @@ async def admin_claude_usage(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 
 async def admin_claude_test(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Тест: usage + короткий запрос"""
+    """Тест: usage + короткий запрос через Claude Code CLI"""
     query = update.callback_query
-    await query.answer('Тестирую...')
+    await query.answer('Тестирую CLI...')
     if not is_admin(query.from_user.id):
         return
 
@@ -808,12 +817,13 @@ async def admin_claude_test(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if ok:
         reply = result.get('reply', '')[:200]
         tokens = result.get('tokens', 0)
+        cli_ver = result.get('cli_version', '?')
         usage_preview = format_tokens(tokens) if isinstance(tokens, int) else tokens
         text = (
             f"✅ *Соединение OK*\n\n"
+            f"CLI: `{cli_ver}`\n"
             f"Ответ: `{reply}`\n"
-            f"Токены (с коэф.): `{usage_preview}`\n\n"
-            f"Нажми «Проверить баланс» для деталей."
+            f"Токены (с коэф.): `{usage_preview}`"
         )
     else:
         text = f"❌ *Тест не прошёл*\n\n`{result}`"

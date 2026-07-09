@@ -29,24 +29,20 @@ pip install -r requirements.txt
 python main.py
 ```
 
-### 4. Настроить Claude API в боте
+## Claude / провайдер
 
-От админа в Telegram:
+Ключ от `claude-code-cli.vibecode-claude.online` работает **только через Claude Code CLI**
+(не через обычный HTTP `/v1/messages`).
 
-```
-/admin
-```
-
-или командой:
+Docker-образ ставит CLI автоматически. После деплоя:
 
 ```
 /set_claude_api_key sk-ant-cap01-XXXXX
+/admin → Claude API → Тест соединения
 ```
 
-По умолчанию используется провайдер:
-`https://claude-code-cli.vibecode-claude.online`, модель `claude-opus-4-8`.
+Минимальная версия CLI: **2.1.150+**. Баланс: `/v1/usage` с заголовком `X-Api-Key`.
 
-В админке: **Claude API** → Проверить баланс / Тест соединения / смена модели.
 
 ## Docker
 
