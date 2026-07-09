@@ -25,6 +25,7 @@ def init_db():
             first_name TEXT,
             last_name TEXT,
             language TEXT DEFAULT 'uk',
+            language_selected INTEGER DEFAULT 0,
             subscription_status TEXT DEFAULT 'trial',
             tokens_limit INTEGER DEFAULT 20,
             tokens_used INTEGER DEFAULT 0,
@@ -176,6 +177,14 @@ def init_db():
         if col not in prompt_cols:
             cursor.execute(sql)
 
+    user_cols = {
+        r[1] for r in cursor.execute('PRAGMA table_info(users)').fetchall()
+    }
+    if 'language_selected' not in user_cols:
+        cursor.execute(
+            'ALTER TABLE users ADD COLUMN language_selected INTEGER DEFAULT 0'
+        )
+
     # Старые промты без variables → topic
     cursor.execute('''
         UPDATE prompts
@@ -246,7 +255,9 @@ def get_user(user_id):
     return dict(user) if user else None
 
 
-def create_user(user_id, username, first_name, referred_by=None, last_name=None):
+def create_user(
+    user_id, username, first_name, referred_by=None, last_name=None, language='en'
+):
     conn = get_db_connection()
     cursor = conn.cursor()
 
@@ -254,9 +265,15 @@ def create_user(user_id, username, first_name, referred_by=None, last_name=None)
     free_limit = int(get_setting('free_requests', '20'))
 
     cursor.execute('''
-        INSERT INTO users (user_id, username, first_name, last_name, referral_code, tokens_limit, referred_by)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-    ''', (user_id, username, first_name, last_name, ref_code, free_limit, referred_by))
+        INSERT INTO users (
+            user_id, username, first_name, last_name, referral_code,
+            tokens_limit, referred_by, language
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    ''', (
+        user_id, username, first_name, last_name, ref_code,
+        free_limit, referred_by, language,
+    ))
 
     cursor.execute('''
         INSERT INTO logs (user_id, action, details)
@@ -270,6 +287,21 @@ def create_user(user_id, username, first_name, referred_by=None, last_name=None)
         add_referral_bonus(referred_by, user_id)
 
     return True
+
+
+def set_user_language(user_id, language):
+    """Сохранить выбранный язык клиентского интерфейса."""
+    conn = get_db_connection()
+    conn.execute(
+        '''
+        UPDATE users
+        SET language = ?, language_selected = 1
+        WHERE user_id = ?
+        ''',
+        (language, user_id),
+    )
+    conn.commit()
+    conn.close()
 
 
 def add_referral_bonus(referrer_id, new_user_id):

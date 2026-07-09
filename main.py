@@ -21,7 +21,8 @@ from handlers import (
     main_menu_callback, ask_ai_callback, prompts_menu_callback,
     user_category_callback, prompt_use_callback,
     buy_callback, profile_callback, referral_callback, help_callback,
-    admin_panel_callback,
+    admin_panel_callback, language_command, language_callback,
+    language_menu_callback,
 )
 from admin_panel import (
     admin_panel, admin_stats, admin_payments, admin_settings, admin_claude,
@@ -61,6 +62,7 @@ def main():
     app.add_handler(CommandHandler("profile", profile))
     app.add_handler(CommandHandler("referral", referral))
     app.add_handler(CommandHandler("help", help_command))
+    app.add_handler(CommandHandler("language", language_command))
     app.add_handler(CommandHandler("admin", admin_panel))
     app.add_handler(CommandHandler("cancel", cancel_admin_action))
     app.add_handler(CommandHandler("cancel_broadcast", cancel_broadcast))
@@ -90,6 +92,8 @@ def main():
     app.add_handler(CallbackQueryHandler(profile_callback, pattern="^profile$"))
     app.add_handler(CallbackQueryHandler(referral_callback, pattern="^referral$"))
     app.add_handler(CallbackQueryHandler(help_callback, pattern="^help$"))
+    app.add_handler(CallbackQueryHandler(language_menu_callback, pattern="^language$"))
+    app.add_handler(CallbackQueryHandler(language_callback, pattern="^lang_(ru|en|uk|de|es)$"))
     app.add_handler(CallbackQueryHandler(admin_panel_callback, pattern="^admin_panel$"))
 
     # Админ callback

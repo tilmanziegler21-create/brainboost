@@ -4,13 +4,21 @@ from telegram.ext import ContextTypes
 from database import (
     get_setting, create_payment, get_payment, update_payment_screenshot,
     update_payment_txid, log_action, get_user_pending_payment,
+    get_user,
 )
 from config import ADMIN_IDS
 from keyboards import buy_keyboard, i_paid_keyboard, back_to_menu_keyboard
 from utils import is_true, format_payment_method
+from utils import format_tokens
+from i18n import t
 
 
-def get_payment_details(method):
+def _language(user_id):
+    user = get_user(user_id)
+    return (user or {}).get('language') or 'en'
+
+
+def get_payment_details(method, language='en'):
     """Получить реквизиты и сумму для способа оплаты"""
     if method == 'card_uah':
         return {
@@ -18,12 +26,12 @@ def get_payment_details(method):
             'currency': 'UAH',
             'method': 'card_uah',
             'enabled': is_true(get_setting('card_uah_enabled', 'true')),
-            'title': '💳 Оплата картой UAH',
+            'title': f"💳 *{t(language, 'payment_title_uah')}*",
             'details': (
-                f"🏦 Банк: `{get_setting('card_uah_bank', '')}`\n"
-                f"💳 Карта: `{get_setting('card_uah_number', '')}`\n"
-                f"👤 Получатель: `{get_setting('card_uah_recipient', '')}`\n"
-                f"💰 Сумма: *{get_setting('price_uah', '1050')} UAH*"
+                f"{t(language, 'bank')}: `{get_setting('card_uah_bank', '')}`\n"
+                f"{t(language, 'card')}: `{get_setting('card_uah_number', '')}`\n"
+                f"{t(language, 'recipient')}: `{get_setting('card_uah_recipient', '')}`\n"
+                f"{t(language, 'amount')}: *{get_setting('price_uah', '1050')} UAH*"
             ),
         }
     if method == 'card_eur':
@@ -32,12 +40,12 @@ def get_payment_details(method):
             'currency': 'EUR',
             'method': 'card_eur',
             'enabled': is_true(get_setting('card_eur_enabled', 'true')),
-            'title': '💳 Оплата картой EUR',
+            'title': f"💳 *{t(language, 'payment_title_eur')}*",
             'details': (
-                f"🏦 IBAN: `{get_setting('card_eur_iban', '')}`\n"
-                f"🔑 BIC: `{get_setting('card_eur_bic', '')}`\n"
-                f"👤 Получатель: `{get_setting('card_eur_recipient', '')}`\n"
-                f"💰 Сумма: *{get_setting('price_eur', '25')} EUR*"
+                f"IBAN: `{get_setting('card_eur_iban', '')}`\n"
+                f"BIC: `{get_setting('card_eur_bic', '')}`\n"
+                f"{t(language, 'recipient')}: `{get_setting('card_eur_recipient', '')}`\n"
+                f"{t(language, 'amount')}: *{get_setting('price_eur', '25')} EUR*"
             ),
         }
     if method == 'usdt':
@@ -46,11 +54,11 @@ def get_payment_details(method):
             'currency': 'USD',
             'method': 'usdt',
             'enabled': is_true(get_setting('usdt_enabled', 'true')),
-            'title': '🪙 Оплата USDT (TRC20)',
+            'title': f"🪙 *{t(language, 'payment_title_usdt')}*",
             'details': (
-                f"🌐 Сеть: `{get_setting('usdt_network', 'TRC20')}`\n"
-                f"👛 Кошелёк: `{get_setting('usdt_wallet', '')}`\n"
-                f"💰 Сумма: *{get_setting('price_usd', '27')} USDT*"
+                f"{t(language, 'network')}: `{get_setting('usdt_network', 'TRC20')}`\n"
+                f"{t(language, 'wallet')}: `{get_setting('usdt_wallet', '')}`\n"
+                f"{t(language, 'amount')}: *{get_setting('price_usd', '27')} USDT*"
             ),
         }
     return None
@@ -58,20 +66,23 @@ def get_payment_details(method):
 
 async def buy(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Команда /buy — выбор способа оплаты"""
+    language = _language(update.effective_user.id)
+    tokens = format_tokens(int(get_setting('subscription_tokens', '50000000')))
+    days = get_setting('subscription_days', '30')
     text = (
-        "💳 *Подписка BrainBoost*\n\n"
-        f"📦 {get_setting('subscription_tokens', '50000000')} токенов\n"
-        f"📅 {get_setting('subscription_days', '30')} дней\n\n"
-        "Выбери способ оплаты:"
+        f"{t(language, 'buy_title')}\n"
+        f"_{t(language, 'buy_tagline')}_\n\n"
+        f"{t(language, 'buy_features', tokens=tokens, days=days)}\n\n"
+        f"*{t(language, 'buy_choose')}*"
     )
     if update.callback_query:
         await update.callback_query.answer()
         await update.callback_query.edit_message_text(
-            text, reply_markup=buy_keyboard(), parse_mode='Markdown'
+            text, reply_markup=buy_keyboard(language), parse_mode='Markdown'
         )
     else:
         await update.message.reply_text(
-            text, reply_markup=buy_keyboard(), parse_mode='Markdown'
+            text, reply_markup=buy_keyboard(language), parse_mode='Markdown'
         )
 
 
@@ -79,14 +90,15 @@ async def payment_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Выбор способа оплаты: pay_card_uah / pay_card_eur / pay_usdt"""
     query = update.callback_query
     await query.answer()
+    language = _language(query.from_user.id)
 
     method = query.data.replace('pay_', '')
-    info = get_payment_details(method)
+    info = get_payment_details(method, language)
 
     if not info or not info['enabled']:
         await query.edit_message_text(
-            "❌ Этот способ оплаты временно недоступен.",
-            reply_markup=buy_keyboard(),
+            t(language, 'payment_unavailable'),
+            reply_markup=buy_keyboard(language),
         )
         return
 
@@ -98,14 +110,12 @@ async def payment_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (
         f"{info['title']}\n\n"
         f"{info['details']}\n\n"
-        f"🧾 Заказ: `{order_id}`\n\n"
-        "1️⃣ Переведи точную сумму по реквизитам\n"
-        "2️⃣ Нажми «Я оплатил»\n"
-        "3️⃣ Пришли скриншот оплаты\n\n"
-        "⏳ После проверки админом подписка активируется."
+        f"{t(language, 'order')}: `{order_id}`\n\n"
+        f"{t(language, 'payment_steps')}\n\n"
+        f"_{t(language, 'payment_review')}_"
     )
     await query.edit_message_text(
-        text, reply_markup=i_paid_keyboard(order_id), parse_mode='Markdown'
+        text, reply_markup=i_paid_keyboard(order_id, language), parse_mode='Markdown'
     )
     log_action(user_id, 'payment_created', f'{order_id} {method}')
 
@@ -114,30 +124,34 @@ async def i_paid_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Пользователь нажал «Я оплатил»"""
     query = update.callback_query
     await query.answer()
+    language = _language(query.from_user.id)
 
     order_id = query.data.replace('i_paid_', '')
     payment = get_payment(order_id)
 
     if not payment:
-        await query.edit_message_text("❌ Заказ не найден.", reply_markup=back_to_menu_keyboard())
+        await query.edit_message_text(
+            t(language, 'order_not_found'),
+            reply_markup=back_to_menu_keyboard(language),
+        )
         return
 
     if payment['user_id'] != query.from_user.id:
-        await query.answer("Это не ваш заказ", show_alert=True)
+        await query.answer(t(language, 'not_your_order'), show_alert=True)
         return
 
     context.user_data['pending_order_id'] = order_id
     context.user_data['awaiting_screenshot'] = True
 
-    hint = "📸 Пришли скриншот оплаты (фото)."
+    hint = t(language, 'send_receipt')
     if payment['payment_method'] == 'usdt':
-        hint += "\n\nИли отправь TXID транзакции текстом."
+        hint += f"\n\n{t(language, 'send_receipt_usdt')}"
 
     await query.edit_message_text(
-        f"✅ Отлично! Заказ `{order_id}`\n\n{hint}",
+        f"✓ *{t(language, 'order')} `{order_id}`*\n\n{hint}",
         parse_mode='Markdown',
         reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton("❌ Отмена", callback_data="buy")]
+            [InlineKeyboardButton(t(language, 'cancel'), callback_data="buy")]
         ]),
     )
 
@@ -165,13 +179,14 @@ async def handle_screenshot(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     context.user_data['awaiting_screenshot'] = False
     context.user_data.pop('pending_order_id', None)
+    language = _language(update.effective_user.id)
 
     await update.message.reply_text(
-        f"✅ Скриншот получен!\n\n"
-        f"🧾 Заказ: `{order_id}`\n"
-        f"⏳ Ожидай подтверждения администратора.",
+        f"*{t(language, 'receipt_received')}*\n\n"
+        f"{t(language, 'order')}: `{order_id}`\n\n"
+        f"{t(language, 'receipt_wait')}",
         parse_mode='Markdown',
-        reply_markup=back_to_menu_keyboard(),
+        reply_markup=back_to_menu_keyboard(language),
     )
 
     log_action(update.effective_user.id, 'payment_screenshot', order_id)
@@ -196,8 +211,9 @@ async def handle_txid_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return False
 
     txid = update.message.text.strip()
+    language = _language(update.effective_user.id)
     if len(txid) < 10:
-        await update.message.reply_text("❌ TXID слишком короткий. Пришли полный хеш транзакции или скриншот.")
+        await update.message.reply_text(t(language, 'txid_short'))
         return True
 
     update_payment_txid(order_id, txid)
@@ -205,12 +221,12 @@ async def handle_txid_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.pop('pending_order_id', None)
 
     await update.message.reply_text(
-        f"✅ TXID получен!\n\n"
-        f"🧾 Заказ: `{order_id}`\n"
-        f"🔗 TXID: `{txid}`\n"
-        f"⏳ Ожидай подтверждения.",
+        f"*{t(language, 'txid_received')}*\n\n"
+        f"{t(language, 'order')}: `{order_id}`\n"
+        f"TXID: `{txid}`\n\n"
+        f"{t(language, 'receipt_wait')}",
         parse_mode='Markdown',
-        reply_markup=back_to_menu_keyboard(),
+        reply_markup=back_to_menu_keyboard(language),
     )
 
     log_action(update.effective_user.id, 'payment_txid', f'{order_id}: {txid}')

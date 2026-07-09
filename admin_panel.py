@@ -14,9 +14,10 @@ from database import (
 )
 from keyboards import (
     get_admin_main_keyboard, get_settings_keyboard, get_payment_methods_keyboard,
-    payment_admin_keyboard, get_admin_tokens_keyboard,
+    payment_admin_keyboard, get_admin_tokens_keyboard, result_keyboard,
 )
 from utils import is_true, format_tokens, format_token_bar, format_status, truncate
+from i18n import t
 
 
 def is_admin(user_id):
@@ -547,15 +548,16 @@ async def confirm_payment_callback(update: Update, context: ContextTypes.DEFAULT
             await query.message.reply_text(f"✅ Оплата #{order_id} подтверждена!")
 
         try:
+            user = get_user(user_id)
+            language = (user or {}).get('language') or 'en'
             await context.bot.send_message(
                 chat_id=user_id,
                 text=(
-                    "🎉 *Подписка BrainBoost активирована!*\n\n"
-                    f"Ты получил доступ к {tokens} токенов на {days} дней.\n"
-                    "Начинай использовать прямо сейчас!\n\n"
-                    "Напиши что-нибудь или выбери промт из меню."
+                    f"{t(language, 'pro_activated')}\n\n"
+                    f"{t(language, 'pro_activated_body', tokens=tokens, days=days)}"
                 ),
                 parse_mode='Markdown',
+                reply_markup=result_keyboard(language),
             )
         except Exception:
             pass
@@ -583,11 +585,13 @@ async def reject_payment_callback(update: Update, context: ContextTypes.DEFAULT_
 
     if payment:
         try:
+            user = get_user(payment['user_id'])
+            language = (user or {}).get('language') or 'en'
             await context.bot.send_message(
                 chat_id=payment['user_id'],
                 text=(
-                    f"❌ Оплата по заказу `{order_id}` отклонена.\n"
-                    "Проверь реквизиты и сумму, затем создай новый заказ через /buy"
+                    f"{t(language, 'payment_rejected', order_id=order_id)}\n\n"
+                    f"{t(language, 'payment_rejected_body')}"
                 ),
                 parse_mode='Markdown',
             )
