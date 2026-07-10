@@ -55,14 +55,31 @@ AVAILABLE_MODELS = [
 
 
 def get_claude_config():
-    api_key = get_setting('claude_api_key')
-    base_url = get_setting('claude_api_url', DEFAULT_BASE_URL).rstrip('/')
+    """ENV имеет приоритет; БД оставлена для обратной совместимости."""
+    api_key = (
+        os.environ.get('CLAUDE_API_KEY')
+        or get_setting('claude_api_key')
+        or ''
+    ).strip()
+    base_url = (
+        os.environ.get('CLAUDE_API_URL')
+        or get_setting('claude_api_url', DEFAULT_BASE_URL)
+        or DEFAULT_BASE_URL
+    ).strip().rstrip('/')
     for suffix in ('/v1/messages', '/v1/usage', '/v1'):
         if base_url.endswith(suffix):
             base_url = base_url[: -len(suffix)]
             break
-    model = get_setting('claude_model', DEFAULT_MODEL)
+    model = (
+        os.environ.get('CLAUDE_MODEL')
+        or get_setting('claude_model', DEFAULT_MODEL)
+        or DEFAULT_MODEL
+    ).strip()
     return api_key, base_url, model
+
+
+def get_claude_config_source():
+    return 'Render ENV' if os.environ.get('CLAUDE_API_KEY', '').strip() else 'База данных'
 
 
 def get_model_multiplier(model=None):
@@ -487,8 +504,8 @@ def _friendly_cli_error(err):
         )
     if 'device limit' in lower:
         return (
-            "❌ Ключ достиг лимита устройств (обычно 3 за 24ч).\n"
-            "Подожди сброса (~сутки) или возьми новый ключ.\n"
+            "❌ Ключ привязан к другому устройству.\n"
+            "По гайду провайдера привязка сбрасывается раз в 8 часов.\n"
             "Не гоняй тест с разных HOME/машин — каждое считается устройством.\n\n"
             f"`{err[:250]}`"
         )
@@ -496,7 +513,7 @@ def _friendly_cli_error(err):
         return (
             "❌ Провайдер: 400.\n\n"
             "Частые причины:\n"
-            "1) device limit (3 устройства / 24ч)\n"
+            "1) привязка ключа к другому устройству (сброс раз в 8ч)\n"
             "2) модель opus-4-8 → `/set_claude_model claude-opus-4-7`\n"
             "3) settings.json не как в мануале\n\n"
             f"`{err[:250]}`"

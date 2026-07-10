@@ -754,14 +754,14 @@ async def admin_claude(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     from claude_api import (
-        get_model_multiplier, DEFAULT_BASE_URL, DEFAULT_MODEL,
-        find_claude_bin, get_cli_version, cli_version_ok, MIN_CLI_VERSION,
-        _stable_home, _has_cli_login,
+        get_model_multiplier, find_claude_bin, get_cli_version,
+        cli_version_ok, MIN_CLI_VERSION,
+        _stable_home, _has_cli_login, get_claude_config,
+        get_claude_config_source,
     )
 
-    api_key = get_setting('claude_api_key', 'Не настроен')
-    model = get_setting('claude_model', DEFAULT_MODEL)
-    api_url = get_setting('claude_api_url', DEFAULT_BASE_URL)
+    api_key, api_url, model = get_claude_config()
+    config_source = get_claude_config_source()
     mult = get_model_multiplier(model)
     key_ok = api_key and api_key not in ('sk-ant-api-xxx', 'Не настроен')
 
@@ -786,8 +786,9 @@ async def admin_claude(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"Логин CLI: {login_status}\n"
         f"Путь: `{claude_bin or '—'}`\n"
         f"API Key: {'✅ Настроен' if key_ok else '❌ Не настроен'}\n\n"
-        "_Ключ работает через Claude Code CLI. "
-        "setup-token (Max/Pro) не обязателен — достаточно api_key._\n\n"
+        f"Источник ключа: *{config_source}*\n\n"
+        "Ключ работает через Claude Code CLI.\n"
+        "`setup-token` (Max/Pro) не обязателен — достаточно API key.\n\n"
         "*Команды:*\n"
         "`/set_claude_api_key KEY`\n"
         "`/set_claude_model MODEL`\n"
