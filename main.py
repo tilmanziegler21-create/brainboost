@@ -36,6 +36,7 @@ from admin_panel import (
     toggle_setting_callback, admin_tokens, admin_tokens_me, admin_tokens_top,
     admin_tokens_low, admin_tokens_find,
     admin_claude_usage, admin_claude_test, admin_claude_model,
+    bind_payments_group, unbind_payments_group,
 )
 from payment import payment_callback, i_paid_callback
 
@@ -64,6 +65,8 @@ def main():
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("language", language_command))
     app.add_handler(CommandHandler("admin", admin_panel))
+    app.add_handler(CommandHandler("bind_payments_group", bind_payments_group))
+    app.add_handler(CommandHandler("unbind_payments_group", unbind_payments_group))
     app.add_handler(CommandHandler("cancel", cancel_admin_action))
     app.add_handler(CommandHandler("cancel_broadcast", cancel_broadcast))
 

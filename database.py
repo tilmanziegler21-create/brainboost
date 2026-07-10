@@ -123,6 +123,7 @@ def init_db():
         ('usdt_wallet', 'TXxxXxxxXxxxXxxxXxxxXxxxXxxxXxxxXxxx', 'Кошелек TRC20'),
         ('usdt_network', 'TRC20', 'Сеть USDT'),
         ('admin_notifications', 'true', 'Уведомления админам'),
+        ('payment_notification_chat_id', '', 'Группа уведомлений об оплатах'),
         ('welcome_message', 'Привет! Я BrainBoost — твой AI-помощник', 'Приветствие'),
         ('maintenance_mode', 'false', 'Режим обслуживания'),
     ]
@@ -470,6 +471,14 @@ def confirm_payment(order_id, admin_id, comment=None):
     conn = get_db_connection()
     cursor = conn.cursor()
 
+    payment = cursor.execute(
+        'SELECT user_id FROM payments WHERE order_id = ?',
+        (order_id,),
+    ).fetchone()
+    if not payment:
+        conn.close()
+        return None
+
     cursor.execute('''
         UPDATE payments
         SET status = 'confirmed',
@@ -478,19 +487,35 @@ def confirm_payment(order_id, admin_id, comment=None):
         WHERE order_id = ?
     ''', (comment or 'Confirmed', order_id))
 
-    payment = conn.execute(
-        'SELECT user_id FROM payments WHERE order_id = ?', (order_id,)
+    days_row = cursor.execute(
+        "SELECT setting_value FROM admin_settings WHERE setting_key = 'subscription_days'"
     ).fetchone()
-    if payment:
-        activate_subscription(payment['user_id'])
-        cursor.execute('''
-            INSERT INTO logs (user_id, action, details)
-            VALUES (?, ?, ?)
-        ''', (payment['user_id'], 'payment_confirmed', f'Order: {order_id} by admin {admin_id}'))
+    tokens_row = cursor.execute(
+        "SELECT setting_value FROM admin_settings WHERE setting_key = 'subscription_tokens'"
+    ).fetchone()
+    days = int(days_row[0] if days_row else '30')
+    end_date = (datetime.now() + timedelta(days=days)).strftime('%Y-%m-%d')
+    tokens_limit = int(tokens_row[0] if tokens_row else '50000000')
+    cursor.execute('''
+        UPDATE users
+        SET subscription_status = 'active',
+            tokens_limit = ?,
+            tokens_used = 0,
+            subscription_end_date = ?
+        WHERE user_id = ?
+    ''', (tokens_limit, end_date, payment['user_id']))
+    cursor.execute('''
+        INSERT INTO logs (user_id, action, details)
+        VALUES (?, ?, ?)
+    ''', (
+        payment['user_id'],
+        'payment_confirmed',
+        f'Order: {order_id} by admin {admin_id}',
+    ))
 
     conn.commit()
     conn.close()
-    return payment['user_id'] if payment else None
+    return payment['user_id']
 
 
 def reject_payment(order_id, admin_id, reason=None):

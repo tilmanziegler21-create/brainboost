@@ -24,6 +24,45 @@ def is_admin(user_id):
     return user_id in ADMIN_IDS
 
 
+async def bind_payments_group(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Привязать текущую Telegram-группу к уведомлениям об оплатах."""
+    if not is_admin(update.effective_user.id):
+        await update.message.reply_text("⛔ Доступ запрещен")
+        return
+    chat = update.effective_chat
+    if chat.type not in ('group', 'supergroup'):
+        await update.message.reply_text(
+            "Добавь бота в нужную группу и выполни эту команду внутри неё."
+        )
+        return
+    set_setting('payment_notification_chat_id', str(chat.id))
+    await update.message.reply_text(
+        "✅ Группа привязана. Новые оплаты будут приходить сюда."
+    )
+    log_action(
+        update.effective_user.id,
+        'payment_group_bound',
+        f'chat_id={chat.id}',
+    )
+
+
+async def unbind_payments_group(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Вернуть уведомления об оплатах в личные сообщения администраторов."""
+    if not is_admin(update.effective_user.id):
+        await update.message.reply_text("⛔ Доступ запрещен")
+        return
+    old_chat_id = get_setting('payment_notification_chat_id', '')
+    set_setting('payment_notification_chat_id', '')
+    await update.message.reply_text(
+        "✅ Группа отвязана. Уведомления снова идут администраторам в личные сообщения."
+    )
+    log_action(
+        update.effective_user.id,
+        'payment_group_unbound',
+        f'chat_id={old_chat_id}',
+    )
+
+
 def admin_panel_text():
     stats = get_admin_stats()
     return (
@@ -343,8 +382,18 @@ async def admin_settings_payment(update: Update, context: ContextTypes.DEFAULT_T
     if not is_admin(query.from_user.id):
         return
 
+    notification_chat = get_setting('payment_notification_chat_id', '')
+    destination = (
+        f"группа `{notification_chat}`"
+        if notification_chat
+        else "личные сообщения администраторов"
+    )
     await query.edit_message_text(
-        "💳 *Способы оплаты*\n\nВыбери метод для настройки:",
+        "💳 *Способы оплаты*\n\n"
+        f"Уведомления: {destination}\n\n"
+        "Чтобы привязать группу, добавь туда бота и выполни:\n"
+        "`/bind_payments_group`\n\n"
+        "Выбери метод для настройки:",
         reply_markup=get_payment_methods_keyboard(),
         parse_mode='Markdown',
     )

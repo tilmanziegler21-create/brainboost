@@ -1,3 +1,5 @@
+import logging
+
 from telegram import Update, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.ext import ContextTypes
 
@@ -11,6 +13,8 @@ from keyboards import buy_keyboard, i_paid_keyboard, back_to_menu_keyboard
 from utils import is_true, format_payment_method
 from utils import format_tokens
 from i18n import t
+
+logger = logging.getLogger('brainboost')
 
 
 def _language(user_id):
@@ -259,11 +263,27 @@ async def notify_admins_payment(context, order_id, photo_file_id=None, txid=None
         [InlineKeyboardButton("📸 Скрин", callback_data=f"view_screenshot_{order_id}")],
     ])
 
-    for admin_id in ADMIN_IDS:
+    configured_chat = (get_setting('payment_notification_chat_id', '') or '').strip()
+    targets = []
+    group_target = None
+    if configured_chat:
+        try:
+            group_target = int(configured_chat)
+            targets.append(group_target)
+        except ValueError:
+            logger.warning(
+                'Invalid payment_notification_chat_id=%s', configured_chat
+            )
+    targets.extend(admin_id for admin_id in ADMIN_IDS if admin_id not in targets)
+
+    group_delivered = False
+    for target_id in targets:
+        if group_delivered and target_id in ADMIN_IDS:
+            continue
         try:
             if photo_file_id:
                 await context.bot.send_photo(
-                    chat_id=admin_id,
+                    chat_id=target_id,
                     photo=photo_file_id,
                     caption=text,
                     parse_mode='Markdown',
@@ -271,10 +291,15 @@ async def notify_admins_payment(context, order_id, photo_file_id=None, txid=None
                 )
             else:
                 await context.bot.send_message(
-                    chat_id=admin_id,
+                    chat_id=target_id,
                     text=text,
                     parse_mode='Markdown',
                     reply_markup=keyboard,
                 )
-        except Exception:
-            pass
+            if group_target is not None and target_id == group_target:
+                group_delivered = True
+        except Exception as exc:
+            logger.warning(
+                'Payment notification failed chat=%s order=%s: %s',
+                target_id, order_id, exc,
+            )
