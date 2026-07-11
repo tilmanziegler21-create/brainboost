@@ -146,16 +146,17 @@ def cli_version_ok(version=None):
 
 def _stable_home():
     """
-    Постоянный HOME.
-    Мануал: ключ привязывается к устройству; нельзя менять профиль на каждый запрос.
+    Реальный home пользователя процесса.
+    CLI резолвит home через getpwuid, а не через $HOME, поэтому settings.json
+    обязан лежать именно в реальном home — иначе CLI его не прочитает.
     """
-    custom = get_setting('claude_home') or os.environ.get('CLAUDE_HOME')
-    if custom:
-        path = Path(custom)
-    else:
+    try:
+        import pwd
+        path = Path(pwd.getpwuid(os.getuid()).pw_dir)
+    except (ImportError, KeyError):
         path = Path(os.environ.get('HOME') or Path.home())
-        if not os.access(path, os.W_OK):
-            path = Path('/tmp/brainboost_claude_home')
+    if not os.access(path, os.W_OK):
+        path = Path('/tmp/brainboost_claude_home')
     path.mkdir(parents=True, exist_ok=True)
     (path / '.claude').mkdir(parents=True, exist_ok=True)
     return path
@@ -373,29 +374,26 @@ def call_claude(prompt, system_prompt=None, max_tokens=4096):
 
     env = _provider_env(api_key, base_url, home_dir)
     work_dir = tempfile.mkdtemp(prefix='bb_claude_work_')
-    settings_path = Path(home_dir) / '.claude' / 'settings.json'
 
     try:
-        # Минимальный вызов: модель через --model (в settings дефолты моделей НЕ кладём — мануал)
+        # Проверенный рабочий вызов через этот же шлюз:
+        # claude -p --output-format json --system-prompt <sys> --model <model>
+        # Текст запроса — через stdin, без дополнительных флагов.
         cmd = [
             claude_bin,
             '-p',
             '--output-format', 'json',
             '--model', model,
-            '--tools', '',
-            '--no-session-persistence',
-            '--permission-mode', 'dontAsk',
-            '--settings', str(settings_path),
         ]
         if system_prompt:
             cmd.extend(['--system-prompt', system_prompt])
-        cmd.append(prompt)
 
         timeout = int(get_setting('claude_timeout', '180') or 180)
         logger.info('claude_cli model=%s ver=%s home=%s', model, version, home_dir)
 
         result = subprocess.run(
             cmd,
+            input=prompt,
             capture_output=True,
             text=True,
             timeout=timeout,
