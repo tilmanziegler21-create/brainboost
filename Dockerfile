@@ -26,10 +26,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Claude Code CLI >= 2.1.150 от пользователя bot (не root!)
+# Claude Code CLI 2.1.198 от пользователя bot (не root!)
 USER bot
-RUN curl -fsSL https://claude.ai/install.sh | bash \
-    && claude --version
+RUN curl -fsSL https://claude.ai/install.sh | bash -s 2.1.198 \
+    && claude --version | awk '$1 == "2.1.198" { ok=1 } END { exit !ok }'
 
 USER root
 COPY . .

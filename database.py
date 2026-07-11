@@ -101,7 +101,7 @@ def init_db():
         ('claude_api_key', 'sk-ant-api-xxx', 'API ключ Claude'),
         ('claude_model', 'claude-opus-4-7', 'Модель Claude'),
         ('claude_api_url', 'https://claude-code-cli.vibecode-claude.online', 'URL API провайдера'),
-        ('claude_client_version', '2.1.205', 'Версия Claude Code CLI (User-Agent)'),
+        ('claude_client_version', '2.1.198', 'Версия Claude Code CLI'),
         ('claude_anthropic_version', '2023-06-01', 'Заголовок anthropic-version'),
         ('claude_oauth_token', '', 'OAuth/setup-token Claude Code (логин шага 2)'),
         ('price_eur', '25', 'Цена в EUR'),
@@ -165,6 +165,13 @@ def init_db():
             "WHERE setting_key = 'claude_model'",
             ('claude-opus-4-7',),
         )
+
+    cursor.execute(
+        "UPDATE admin_settings SET setting_value = '2.1.198', "
+        "updated_at = CURRENT_TIMESTAMP "
+        "WHERE setting_key = 'claude_client_version' "
+        "AND setting_value = '2.1.205'"
+    )
 
     # Миграция таблицы prompts → магазин промтов
     prompt_cols = {
