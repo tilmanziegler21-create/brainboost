@@ -356,12 +356,16 @@ async def admin_settings_limits(update: Update, context: ContextTypes.DEFAULT_TY
     text = (
         "🎯 *Лимиты*\n\n"
         f"Бесплатных запросов: `{get_setting('free_requests')}`\n"
+        f"Списание за запрос: `{format_tokens(int(get_setting('free_request_cost', '100000')))}`\n"
+        f"Бесплатный баланс: `{format_tokens(int(get_setting('free_tokens_limit', '1000000')))}`\n"
         f"Токенов в подписке: `{format_tokens(int(get_setting('subscription_tokens', '0')))}`\n"
         f"Дней подписки: `{get_setting('subscription_days')}`\n"
         f"Бонус за реферала: `{format_tokens(int(get_setting('referral_bonus', '0')))}`\n"
         f"Макс рефералов: `{get_setting('max_referrals')}`\n\n"
         "*Изменить:*\n"
-        "`/set_free_requests 20`\n"
+        "`/set_free_requests 10`\n"
+        "`/set_free_request_cost 100000`\n"
+        "`/set_free_tokens_limit 1000000`\n"
         "`/set_subscription_tokens 50000000`\n"
         "`/set_subscription_days 30`\n"
         "`/set_referral_bonus 5000000`\n"
@@ -832,7 +836,7 @@ async def admin_claude(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"URL: `{api_url}`\n"
         f"Модель: `{model}` (×{mult})\n"
         f"CLI: {cli_status}\n"
-        f"Логин CLI: {login_status}\n"
+        f"Авторизация CLI: {login_status}\n"
         f"Путь: `{claude_bin or '—'}`\n"
         f"API Key: {'✅ Настроен' if key_ok else '❌ Не настроен'}\n\n"
         f"Источник ключа: *{config_source}*\n\n"
@@ -938,6 +942,8 @@ async def admin_price_command(update: Update, context: ContextTypes.DEFAULT_TYPE
         '/set_price_usd': 'price_usd',
         '/set_price_uah': 'price_uah',
         '/set_free_requests': 'free_requests',
+        '/set_free_request_cost': 'free_request_cost',
+        '/set_free_tokens_limit': 'free_tokens_limit',
         '/set_claude_api_key': 'claude_api_key',
         '/set_claude_model': 'claude_model',
         '/set_claude_api_url': 'claude_api_url',

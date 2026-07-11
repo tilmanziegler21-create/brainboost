@@ -202,14 +202,15 @@ def _apply_oauth_token(home_dir):
     или env CLAUDE_CODE_OAUTH_TOKEN
     """
     token = (
-        get_setting('claude_oauth_token')
-        or os.environ.get('CLAUDE_CODE_OAUTH_TOKEN')
+        os.environ.get('CLAUDE_CODE_OAUTH_TOKEN')
+        or get_setting('claude_oauth_token')
         or ''
     ).strip()
     if not token:
         return False
 
     cred_path = Path(home_dir) / '.claude' / '.credentials.json'
+    cred_path.parent.mkdir(parents=True, exist_ok=True)
     # Минимальный формат, который CLI обычно принимает
     payload = {
         'claudeAiOauth': {
@@ -234,8 +235,11 @@ def _apply_oauth_token(home_dir):
 
 
 def _has_cli_login(home_dir):
-    """Есть ли признаки логина CLI (credentials / oauth token)"""
-    if get_setting('claude_oauth_token') or os.environ.get('CLAUDE_CODE_OAUTH_TOKEN'):
+    """Есть ли рабочий способ авторизации CLI: provider key или OAuth."""
+    api_key, _, _ = get_claude_config()
+    if api_key and api_key not in ('sk-ant-api-xxx', 'Не настроен'):
+        return True
+    if os.environ.get('CLAUDE_CODE_OAUTH_TOKEN') or get_setting('claude_oauth_token'):
         return True
     home = Path(home_dir)
     for p in (
@@ -268,10 +272,10 @@ def _provider_env(api_key, base_url, home_dir):
     env['HOME'] = str(home_dir)
     env['USERPROFILE'] = str(home_dir)
 
-    # Вариант 1 (сессионный) — дублируем, чтобы точно подтянулось
+    # Используем только вариант 2 из гайда: API key через settings.json.
+    # CUSTOM_HEADERS относится к альтернативному варианту 1 и может создать
+    # конфликт двух способов авторизации.
     env['ANTHROPIC_BASE_URL'] = base_url
-    env['ANTHROPIC_CUSTOM_HEADERS'] = f'X-Api-Key: {api_key}'
-    # Вариант 2 тоже использует API_KEY в settings; в env тоже ок
     env['ANTHROPIC_API_KEY'] = api_key
 
     for key in MANUAL_SETTINGS_ENV_KEYS:
@@ -279,14 +283,18 @@ def _provider_env(api_key, base_url, home_dir):
             continue
         env[key] = '1'
 
-    oauth = (get_setting('claude_oauth_token') or os.environ.get('CLAUDE_CODE_OAUTH_TOKEN') or '').strip()
+    oauth = (
+        os.environ.get('CLAUDE_CODE_OAUTH_TOKEN')
+        or get_setting('claude_oauth_token')
+        or ''
+    ).strip()
     if oauth and not oauth.startswith('{'):
         env['CLAUDE_CODE_OAUTH_TOKEN'] = oauth
 
     env['CI'] = '1'
     env['TERM'] = 'dumb'
     # Убрать чужие auth, которые перебьют наш ключ (мануал FAQ #1/#6)
-    for k in ('ANTHROPIC_AUTH_TOKEN',):
+    for k in ('ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_CUSTOM_HEADERS'):
         env.pop(k, None)
     return env
 
@@ -411,14 +419,23 @@ def call_claude(prompt, system_prompt=None, max_tokens=4096):
 
         text, inp, out, is_err = _parse_cli_output(stdout, prompt, stderr)
         if is_err or text.startswith('❌') or _looks_like_api_error(text + ' ' + stderr):
-            return _friendly_cli_error(text if _looks_like_api_error(text) else (stderr or text)), 0, 0
+            raw_error = text if _looks_like_api_error(text) else (stderr or text)
+            logger.warning(
+                'claude_cli api_error rc=%s out=%s err=%s',
+                result.returncode,
+                stdout[:500].replace(api_key, '[REDACTED]'),
+                stderr[:500].replace(api_key, '[REDACTED]'),
+            )
+            return _friendly_cli_error(raw_error), 0, 0
 
         mult = get_model_multiplier(model)
         return text, int(inp * mult), int(out * mult)
 
     except subprocess.TimeoutExpired:
+        logger.warning('claude_cli timeout model=%s', model)
         return "⏰ Таймаут Claude CLI. Попробуй позже.", 0, 0
     except Exception as e:
+        logger.exception('claude_cli exception model=%s', model)
         return f"❌ Ошибка CLI: {str(e)}", 0, 0
     finally:
         shutil.rmtree(work_dir, ignore_errors=True)

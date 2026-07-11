@@ -8,7 +8,7 @@ from database import (
     update_tokens_used, log_action, get_setting, get_user_by_referral_code,
     get_prompts_by_category, get_prompt, check_and_expire_subscriptions,
     get_popular_prompts, parse_prompt_variables, increment_prompt_usage,
-    set_user_language,
+    set_user_language, get_free_requests_remaining,
 )
 from claude_api import call_claude
 from keyboards import (
@@ -46,7 +46,6 @@ def build_home_text(user):
     limit = get_tokens_limit(user['user_id'])
     is_pro = user['subscription_status'] == 'active'
     access = t(language, 'welcome_pro' if is_pro else 'welcome_trial')
-    balance_label = t(language, 'tokens_left' if is_pro else 'requests_left')
     welcome_body = t(language, 'welcome_body')
     configured_welcome = get_setting('welcome_message', '')
     old_defaults = {
@@ -55,12 +54,24 @@ def build_home_text(user):
     }
     if language == 'ru' and configured_welcome and configured_welcome not in old_defaults:
         welcome_body = escape_markdown(configured_welcome, version=1)
+    usage_lines = (
+        f"{t(language, 'tokens_left')}: "
+        f"`{format_tokens(remaining)} / {format_tokens(limit)}`"
+    )
+    if not is_pro:
+        request_limit = int(get_setting('free_requests', '10'))
+        requests_left = get_free_requests_remaining(user['user_id'])
+        usage_lines = (
+            f"{t(language, 'requests_left')}: `{requests_left} / {request_limit}`\n"
+            f"{t(language, 'tokens_left')}: "
+            f"`{format_tokens(remaining)} / {format_tokens(limit)}`"
+        )
     return (
         f"{t(language, 'welcome_title')}\n"
         f"_{t(language, 'welcome_subtitle')}_\n\n"
         f"{welcome_body}\n\n"
         f"◇ *{access}*\n"
-        f"{balance_label}: `{format_tokens(remaining)} / {format_tokens(limit)}`\n\n"
+        f"{usage_lines}\n\n"
         f"*{t(language, 'choose_action')}*"
     )
 
@@ -107,6 +118,11 @@ async def check_access(user):
     if user['subscription_status'] == 'expired':
         return False, t(user_language(user), 'subscription_expired')
     remaining = get_remaining_tokens(user['user_id'])
+    if user['subscription_status'] == 'trial':
+        free_requests = get_free_requests_remaining(user['user_id'])
+        request_cost = int(get_setting('free_request_cost', '100000'))
+        if free_requests <= 0 or remaining < request_cost:
+            return False, t(user_language(user), 'trial_exhausted')
     if remaining <= 0:
         if user['subscription_status'] == 'active':
             return False, t(user_language(user), 'pro_exhausted')
@@ -205,21 +221,29 @@ async def profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
     used = user['tokens_used'] or 0
     percent = round((used / limit) * 100, 1) if limit > 0 else 0
 
-    text = (
-        f"{t(language, 'profile_title')}\n\n"
-        f"◇ *{t(language, 'profile_plan')}*\n"
-        f"{localized_status(user['subscription_status'], language)}\n"
-        f"{t(language, 'profile_valid_until')}: "
-        f"`{user['subscription_end_date'] or t(language, 'not_set')}`\n\n"
-        f"◇ *{t(language, 'profile_usage')}*\n"
-        f"{format_token_bar(percent)}\n"
-        f"{t(language, 'profile_used')}: `{format_tokens(used)}`\n"
-        f"{t(language, 'profile_available')}: `{format_tokens(remaining)} / {format_tokens(limit)}`\n\n"
-        f"◇ *Rewards*\n"
-        f"{t(language, 'profile_bonus')}: `{format_tokens(user['bonus_tokens'])}`\n"
-        f"{t(language, 'profile_referrals')}: `{user['total_referrals']}`\n\n"
-        f"{t(language, 'profile_id')}: `{user['user_id']}`"
-    )
+    if user['subscription_status'] == 'active':
+        text = (
+            f"{t(language, 'profile_title')}\n\n"
+            f"◇ *{localized_status('active', language)}*\n"
+            f"{t(language, 'profile_valid_until')}: "
+            f"`{user['subscription_end_date'] or t(language, 'not_set')}`\n"
+            f"{t(language, 'profile_available')}: `{format_tokens(remaining)}`"
+        )
+    else:
+        request_limit = int(get_setting('free_requests', '10'))
+        requests_left = get_free_requests_remaining(user['user_id'])
+        text = (
+            f"{t(language, 'profile_title')}\n\n"
+            f"◇ *{t(language, 'profile_plan')}*\n"
+            f"{localized_status(user['subscription_status'], language)}\n\n"
+            f"◇ *{t(language, 'profile_usage')}*\n"
+            f"{format_token_bar(percent)}\n"
+            f"{t(language, 'requests_left')}: `{requests_left} / {request_limit}`\n"
+            f"{t(language, 'profile_used')}: `{format_tokens(used)}`\n"
+            f"{t(language, 'profile_available')}: "
+            f"`{format_tokens(remaining)} / {format_tokens(limit)}`\n\n"
+            f"{t(language, 'profile_id')}: `{user['user_id']}`"
+        )
 
     if update.callback_query:
         await update.callback_query.answer()
@@ -464,23 +488,32 @@ async def process_ai_request(
     )
     total_tokens = input_tokens + output_tokens
 
-    if total_tokens == 0 and response_text.lstrip().startswith(('⚠️', '❌', '⏰')):
-        response_text = t(language, 'ai_unavailable')
-
-    if user['subscription_status'] != 'active':
-        tokens_to_charge = 1
-    else:
-        tokens_to_charge = max(1, total_tokens)
-
-    update_tokens_used(user['user_id'], tokens_to_charge)
-    if prompt_id:
-        increment_prompt_usage(prompt_id)
-    log_action(
-        user['user_id'],
-        'request',
-        f'in={input_tokens} out={output_tokens} charged={tokens_to_charge}'
-        + (f' prompt={prompt_id}' if prompt_id else ''),
+    call_failed = (
+        total_tokens == 0
+        and response_text.lstrip().startswith(('⚠️', '❌', '⏰'))
     )
+    if call_failed:
+        provider_error = response_text
+        response_text = t(language, 'ai_unavailable')
+    else:
+        if user['subscription_status'] == 'active':
+            tokens_to_charge = max(1, total_tokens)
+            update_tokens_used(user['user_id'], tokens_to_charge)
+        else:
+            tokens_to_charge = int(get_setting('free_request_cost', '100000'))
+            update_tokens_used(
+                user['user_id'], tokens_to_charge, count_free_request=True
+            )
+        if prompt_id:
+            increment_prompt_usage(prompt_id)
+        log_action(
+            user['user_id'],
+            'request',
+            f'in={input_tokens} out={output_tokens} charged={tokens_to_charge}'
+            + (f' prompt={prompt_id}' if prompt_id else ''),
+        )
+    if call_failed:
+        log_action(user['user_id'], 'request_error', provider_error[:500])
 
     remaining = get_remaining_tokens(user['user_id'])
 

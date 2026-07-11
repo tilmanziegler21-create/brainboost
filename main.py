@@ -73,7 +73,8 @@ def main():
     # Админ-команды настроек
     admin_set_commands = [
         "set_price_eur", "set_price_usd", "set_price_uah",
-        "set_free_requests", "set_claude_api_key", "set_claude_model",
+        "set_free_requests", "set_free_request_cost", "set_free_tokens_limit",
+        "set_claude_api_key", "set_claude_model",
         "set_claude_api_url", "set_claude_client_version", "set_claude_anthropic_version",
         "set_claude_oauth_token",
         "set_subscription_tokens", "set_subscription_days",

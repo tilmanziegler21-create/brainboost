@@ -27,8 +27,9 @@ def init_db():
             language TEXT DEFAULT 'uk',
             language_selected INTEGER DEFAULT 0,
             subscription_status TEXT DEFAULT 'trial',
-            tokens_limit INTEGER DEFAULT 20,
+            tokens_limit INTEGER DEFAULT 1000000,
             tokens_used INTEGER DEFAULT 0,
+            free_requests_used INTEGER DEFAULT 0,
             subscription_end_date TEXT,
             referral_code TEXT UNIQUE,
             referred_by INTEGER,
@@ -106,7 +107,9 @@ def init_db():
         ('price_eur', '25', 'Цена в EUR'),
         ('price_usd', '27', 'Цена в USD'),
         ('price_uah', '1050', 'Цена в UAH'),
-        ('free_requests', '20', 'Бесплатных запросов'),
+        ('free_requests', '10', 'Бесплатных запросов'),
+        ('free_request_cost', '100000', 'Списание за бесплатный запрос'),
+        ('free_tokens_limit', '1000000', 'Бесплатных токенов на пользователя'),
         ('subscription_tokens', '50000000', 'Токенов в подписке'),
         ('subscription_days', '30', 'Дней подписки'),
         ('referral_bonus', '5000000', 'Бонус за реферала'),
@@ -185,6 +188,25 @@ def init_db():
         cursor.execute(
             'ALTER TABLE users ADD COLUMN language_selected INTEGER DEFAULT 0'
         )
+    if 'free_requests_used' not in user_cols:
+        cursor.execute(
+            'ALTER TABLE users ADD COLUMN free_requests_used INTEGER DEFAULT 0'
+        )
+        # Раньше tokens_used у trial означал число запросов. Переводим старые
+        # данные в новую схему: 100K за запрос, максимум 10 запросов / 1M.
+        cursor.execute('''
+            UPDATE users
+            SET free_requests_used = MIN(COALESCE(tokens_used, 0), 10),
+                tokens_used = MIN(COALESCE(tokens_used, 0), 10) * 100000,
+                tokens_limit = 1000000
+            WHERE subscription_status = 'trial'
+        ''')
+
+    cursor.execute('''
+        UPDATE admin_settings
+        SET setting_value = '10', updated_at = CURRENT_TIMESTAMP
+        WHERE setting_key = 'free_requests' AND setting_value = '20'
+    ''')
 
     # Старые промты без variables → topic
     cursor.execute('''
@@ -263,7 +285,7 @@ def create_user(
     cursor = conn.cursor()
 
     ref_code = hashlib.md5(f"{user_id}{random.randint(1000, 9999)}".encode()).hexdigest()[:8]
-    free_limit = int(get_setting('free_requests', '20'))
+    free_limit = int(get_setting('free_tokens_limit', '1000000'))
 
     cursor.execute('''
         INSERT INTO users (
@@ -327,13 +349,21 @@ def add_referral_bonus(referrer_id, new_user_id):
     conn.close()
 
 
-def update_tokens_used(user_id, tokens):
+def update_tokens_used(user_id, tokens, count_free_request=False):
     conn = get_db_connection()
-    conn.execute('''
-        UPDATE users
-        SET tokens_used = tokens_used + ?
-        WHERE user_id = ?
-    ''', (tokens, user_id))
+    if count_free_request:
+        conn.execute('''
+            UPDATE users
+            SET tokens_used = tokens_used + ?,
+                free_requests_used = free_requests_used + 1
+            WHERE user_id = ?
+        ''', (tokens, user_id))
+    else:
+        conn.execute('''
+            UPDATE users
+            SET tokens_used = tokens_used + ?
+            WHERE user_id = ?
+        ''', (tokens, user_id))
     conn.commit()
     conn.close()
 
@@ -359,6 +389,14 @@ def get_tokens_limit(user_id):
     if user['subscription_status'] == 'active':
         return int(get_setting('subscription_tokens', '50000000')) + user['bonus_tokens']
     return user['tokens_limit']
+
+
+def get_free_requests_remaining(user_id):
+    user = get_user(user_id)
+    if not user or user['subscription_status'] != 'trial':
+        return 0
+    limit = int(get_setting('free_requests', '10'))
+    return max(0, limit - (user.get('free_requests_used') or 0))
 
 
 def activate_subscription(user_id):
