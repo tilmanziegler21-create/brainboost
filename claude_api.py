@@ -283,18 +283,14 @@ def _provider_env(api_key, base_url, home_dir):
             continue
         env[key] = '1'
 
-    oauth = (
-        os.environ.get('CLAUDE_CODE_OAUTH_TOKEN')
-        or get_setting('claude_oauth_token')
-        or ''
-    ).strip()
-    if oauth and not oauth.startswith('{'):
-        env['CLAUDE_CODE_OAUTH_TOKEN'] = oauth
-
     env['CI'] = '1'
     env['TERM'] = 'dumb'
-    # Убрать чужие auth, которые перебьют наш ключ (мануал FAQ #1/#6)
-    for k in ('ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_CUSTOM_HEADERS'):
+    # Provider key — единственный способ авторизации этого процесса.
+    for k in (
+        'ANTHROPIC_AUTH_TOKEN',
+        'ANTHROPIC_CUSTOM_HEADERS',
+        'CLAUDE_CODE_OAUTH_TOKEN',
+    ):
         env.pop(k, None)
     return env
 
@@ -374,9 +370,6 @@ def call_claude(prompt, system_prompt=None, max_tokens=4096):
 
     home_dir = _stable_home()
     _write_settings(home_dir, api_key, base_url)
-    # OAuth опционален: setup-token требует Max/Pro.
-    # По мануалу достаточно settings.json + ключ; логин CLI — если CLI сам просит.
-    _apply_oauth_token(home_dir)
 
     env = _provider_env(api_key, base_url, home_dir)
     work_dir = tempfile.mkdtemp(prefix='bb_claude_work_')
@@ -528,11 +521,8 @@ def _friendly_cli_error(err):
         )
     if '400' in lower or 'unexpected error' in lower or 'support service' in lower:
         return (
-            "❌ Провайдер: 400.\n\n"
-            "Частые причины:\n"
-            "1) привязка ключа к другому устройству (сброс раз в 8ч)\n"
-            "2) модель opus-4-8 → `/set_claude_model claude-opus-4-7`\n"
-            "3) settings.json не как в мануале\n\n"
+            "❌ Провайдер вернул 400 без описания причины.\n"
+            "settings.json сформирован по мануалу; проверь модель и состояние ключа у провайдера.\n\n"
             f"`{err[:250]}`"
         )
     if 'rate limit' in lower or '429' in lower:
