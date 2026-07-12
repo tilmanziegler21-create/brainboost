@@ -603,14 +603,32 @@ async def confirm_payment_callback(update: Update, context: ContextTypes.DEFAULT
         try:
             user = get_user(user_id)
             language = (user or {}).get('language') or 'en'
+            first_name = ((user or {}).get('first_name') or '').strip()
+            greeting = ''
+            if first_name:
+                from telegram.helpers import escape_markdown as _esc
+                greeting = (
+                    f"{t(language, 'pro_ceremony_greeting', name=_esc(first_name, version=1))}\n\n"
+                )
+            ceremony_keyboard = InlineKeyboardMarkup([
+                [InlineKeyboardButton(
+                    t(language, 'cta_first_result'), callback_data='ask_ai'
+                )],
+                [InlineKeyboardButton(
+                    t(language, 'open_library'), callback_data='prompts_menu'
+                )],
+            ])
             await context.bot.send_message(
                 chat_id=user_id,
                 text=(
-                    f"{t(language, 'pro_activated')}\n\n"
-                    f"{t(language, 'pro_activated_body', tokens=tokens, days=days)}"
+                    f"{t(language, 'pro_ceremony_title')}\n"
+                    f"━━━━━━━━━━━━━━\n\n"
+                    f"{greeting}"
+                    f"{t(language, 'pro_activated_body', tokens=tokens, days=days)}\n\n"
+                    f"{t(language, 'pro_ceremony_hint')}"
                 ),
                 parse_mode='Markdown',
-                reply_markup=result_keyboard(language),
+                reply_markup=ceremony_keyboard,
             )
         except Exception:
             pass

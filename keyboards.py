@@ -20,7 +20,7 @@ def language_keyboard(back=False):
         [InlineKeyboardButton('🇪🇸 Español', callback_data='lang_es')],
     ]
     if back:
-        buttons.append([InlineKeyboardButton('‹ Back', callback_data='main_menu')])
+        buttons.append([InlineKeyboardButton('‹ Back', callback_data='more_menu')])
     return InlineKeyboardMarkup(buttons)
 
 
@@ -28,19 +28,28 @@ def main_menu_keyboard(is_admin=False, language='en'):
     rows = [
         [InlineKeyboardButton(t(language, 'menu_ask'), callback_data="ask_ai")],
         [InlineKeyboardButton(t(language, 'menu_prompts'), callback_data="prompts_menu")],
-        [
-            InlineKeyboardButton(t(language, 'menu_profile'), callback_data="profile"),
-            InlineKeyboardButton(t(language, 'menu_buy'), callback_data="buy"),
-        ],
-        [
-            InlineKeyboardButton(t(language, 'menu_referral'), callback_data="referral"),
-            InlineKeyboardButton(t(language, 'menu_language'), callback_data="language"),
-        ],
-        [InlineKeyboardButton(t(language, 'menu_help'), callback_data="help")],
+        [InlineKeyboardButton(t(language, 'menu_buy'), callback_data="buy")],
+        [InlineKeyboardButton(t(language, 'menu_more'), callback_data="more_menu")],
     ]
     if is_admin:
         rows.append([InlineKeyboardButton(t(language, 'menu_admin'), callback_data="admin_panel")])
     return InlineKeyboardMarkup(rows)
+
+
+def more_menu_keyboard(language='en'):
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton(t(language, 'menu_profile'), callback_data="profile")],
+        [InlineKeyboardButton(t(language, 'menu_referral'), callback_data="referral")],
+        [InlineKeyboardButton(t(language, 'menu_language'), callback_data="language")],
+        [InlineKeyboardButton(t(language, 'menu_help'), callback_data="help")],
+        [InlineKeyboardButton(t(language, 'back_menu'), callback_data="main_menu")],
+    ])
+
+
+def back_to_more_keyboard(language='en'):
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton(t(language, 'back'), callback_data="more_menu")]
+    ])
 
 
 def buy_keyboard(language='en'):
@@ -71,11 +80,16 @@ def i_paid_keyboard(order_id, language='en'):
     ])
 
 
-def prompts_categories_keyboard(language='en'):
+def prompts_categories_keyboard(language='en', counts=None):
+    counts = counts or {}
     buttons = []
     row = []
     for key in CATEGORY_NAMES:
-        row.append(InlineKeyboardButton(category_name(key, language), callback_data=f"user_cat_{key}"))
+        label = category_name(key, language)
+        cnt = counts.get(key)
+        if cnt:
+            label = f"{label} · {cnt}"
+        row.append(InlineKeyboardButton(label, callback_data=f"user_cat_{key}"))
         if len(row) == 2:
             buttons.append(row)
             row = []
@@ -113,14 +127,21 @@ def cancel_keyboard(language='en'):
     ])
 
 
-def result_keyboard(language='en'):
-    return InlineKeyboardMarkup([
+def result_keyboard(language='en', category=None, show_upgrade=False):
+    rows = [
         [
             InlineKeyboardButton(t(language, 'ask_again'), callback_data='ask_ai'),
             InlineKeyboardButton(t(language, 'open_library'), callback_data='prompts_menu'),
         ],
-        [InlineKeyboardButton(t(language, 'back_menu'), callback_data='main_menu')],
-    ])
+    ]
+    if category:
+        rows.append([
+            InlineKeyboardButton(t(language, 'similar_scenario'), callback_data=f'user_cat_{category}')
+        ])
+    if show_upgrade:
+        rows.append([InlineKeyboardButton(t(language, 'menu_buy'), callback_data='buy')])
+    rows.append([InlineKeyboardButton(t(language, 'back_menu'), callback_data='main_menu')])
+    return InlineKeyboardMarkup(rows)
 
 
 # --- Админ ---

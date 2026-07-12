@@ -849,6 +849,18 @@ def get_prompts_by_category(category):
     return [dict(p) for p in prompts]
 
 
+def get_category_counts():
+    """Количество активных сценариев по каждой категории (для бейджей в библиотеке)"""
+    conn = get_db_connection()
+    rows = conn.execute('''
+        SELECT category, COUNT(*) as cnt FROM prompts
+        WHERE is_active = 1
+        GROUP BY category
+    ''').fetchall()
+    conn.close()
+    return {r['category']: r['cnt'] for r in rows}
+
+
 def get_popular_prompts(limit=10):
     conn = get_db_connection()
     prompts = conn.execute('''

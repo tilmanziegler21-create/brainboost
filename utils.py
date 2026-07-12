@@ -36,18 +36,18 @@ def format_tokens(n):
 
 
 def format_token_bar(percent, width=10):
-    """Прогресс-бар использования токенов"""
+    """Прогресс-бар использования токенов (цветные квадраты вместо блочных символов)"""
     percent = max(0, min(100, float(percent)))
     filled = int(round(percent / 100 * width))
     empty = width - filled
-    bar = '█' * filled + '░' * empty
     if percent >= 90:
-        mark = '🔴'
+        mark, fill_icon = '🔴', '🟥'
     elif percent >= 70:
-        mark = '🟡'
+        mark, fill_icon = '🟡', '🟨'
     else:
-        mark = '🟢'
-    return f'{mark} [{bar}] {percent:.0f}%'
+        mark, fill_icon = '🟢', '🟩'
+    bar = fill_icon * filled + '⬜️' * empty
+    return f'{mark} {bar} {percent:.0f}%'
 
 
 def format_status(status):

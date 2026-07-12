@@ -1,4 +1,9 @@
+import asyncio
+import time
+from datetime import datetime
+
 from telegram import Update
+from telegram.constants import ChatAction
 from telegram.helpers import escape_markdown
 from telegram.ext import ContextTypes
 
@@ -8,13 +13,13 @@ from database import (
     update_tokens_used, log_action, get_setting, get_user_by_referral_code,
     get_prompts_by_category, get_prompt, check_and_expire_subscriptions,
     get_popular_prompts, parse_prompt_variables, increment_prompt_usage,
-    set_user_language, get_free_requests_remaining,
+    set_user_language, get_free_requests_remaining, get_category_counts,
 )
 from claude_api import call_claude
 from keyboards import (
     main_menu_keyboard, prompts_categories_keyboard, prompts_list_keyboard,
-    back_to_menu_keyboard, cancel_keyboard, language_keyboard,
-    result_keyboard,
+    back_to_menu_keyboard, back_to_more_keyboard, more_menu_keyboard,
+    cancel_keyboard, language_keyboard, result_keyboard,
 )
 from payment import buy, handle_screenshot, handle_txid_text
 from admin_panel import admin_text_handler, is_admin
@@ -22,7 +27,7 @@ from prompts_data import CATEGORY_ALIASES
 from utils import format_tokens, format_token_bar, is_true
 from i18n import (
     SUPPORTED_LANGUAGES, t, detect_language, category_name, prompt_title,
-    variable_hint, response_language_instruction,
+    variable_hint, response_language_instruction, thinking_phases,
 )
 
 
@@ -40,12 +45,28 @@ def localized_status(status, language):
     return t(language, f'status_{status}')
 
 
+def _pro_days_left(user):
+    """Сколько дней осталось у активной подписки (None если нет даты)"""
+    end_date = user.get('subscription_end_date')
+    if not end_date:
+        return None
+    try:
+        end = datetime.strptime(str(end_date)[:10], '%Y-%m-%d')
+    except ValueError:
+        return None
+    return max(0, (end - datetime.now()).days + 1)
+
+
 def build_home_text(user):
     language = user_language(user)
     remaining = get_remaining_tokens(user['user_id'])
     limit = get_tokens_limit(user['user_id'])
     is_pro = user['subscription_status'] == 'active'
     access = t(language, 'welcome_pro' if is_pro else 'welcome_trial')
+    if is_pro:
+        days_left = _pro_days_left(user)
+        if days_left is not None:
+            access = f"{access} · {t(language, 'pro_days_left', days=days_left)}"
     welcome_body = t(language, 'welcome_body')
     configured_welcome = get_setting('welcome_message', '')
     old_defaults = {
@@ -61,14 +82,16 @@ def build_home_text(user):
     if not is_pro:
         request_limit = int(get_setting('free_requests', '10'))
         requests_left = get_free_requests_remaining(user['user_id'])
-        usage_lines = (
-            f"{t(language, 'requests_left')}: `{requests_left} / {request_limit}`\n"
-            f"{t(language, 'tokens_left')}: "
-            f"`{format_tokens(remaining)} / {format_tokens(limit)}`"
-        )
+        usage_lines = f"{t(language, 'requests_left')}: `{requests_left} / {request_limit}`"
+    greeting = ''
+    first_name = (user.get('first_name') or '').strip()
+    if first_name:
+        safe_name = escape_markdown(first_name, version=1)
+        greeting = f"{t(language, 'greeting_back', name=safe_name)}\n\n"
     return (
         f"{t(language, 'welcome_title')}\n"
         f"_{t(language, 'welcome_subtitle')}_\n\n"
+        f"{greeting}"
         f"{welcome_body}\n\n"
         f"◇ *{access}*\n"
         f"{usage_lines}\n\n"
@@ -193,13 +216,36 @@ async def language_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def language_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer()
     language = query.data.replace('lang_', '')
     if language not in SUPPORTED_LANGUAGES:
         language = 'en'
+    await query.answer(t(language, 'language_changed'))
     user = await ensure_user(update)
+    first_time = not user.get('language_selected')
     set_user_language(user['user_id'], language)
     user = get_user(user['user_id'])
+
+    if first_time:
+        # Двухтактный онбординг: интро → пауза с "печатает…" → главный экран
+        await query.edit_message_text(
+            t(language, 'onboarding_intro'), parse_mode='Markdown'
+        )
+        try:
+            await context.bot.send_chat_action(
+                chat_id=query.message.chat_id, action=ChatAction.TYPING
+            )
+        except Exception:
+            pass
+        await asyncio.sleep(1.2)
+        await query.message.reply_text(
+            build_home_text(user),
+            reply_markup=main_menu_keyboard(
+                is_admin=is_admin(user['user_id']), language=language
+            ),
+            parse_mode='Markdown',
+        )
+        return
+
     await query.edit_message_text(
         f"{t(language, 'language_changed')}\n\n{build_home_text(user)}",
         reply_markup=main_menu_keyboard(
@@ -246,13 +292,13 @@ async def profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
     if update.callback_query:
-        await update.callback_query.answer()
+        await update.callback_query.answer(t(language, 'toast_profile'))
         await update.callback_query.edit_message_text(
-            text, reply_markup=back_to_menu_keyboard(language), parse_mode='Markdown'
+            text, reply_markup=back_to_more_keyboard(language), parse_mode='Markdown'
         )
     else:
         await update.message.reply_text(
-            text, reply_markup=back_to_menu_keyboard(language), parse_mode='Markdown'
+            text, reply_markup=back_to_more_keyboard(language), parse_mode='Markdown'
         )
 
 
@@ -278,13 +324,13 @@ async def referral(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
     if update.callback_query:
-        await update.callback_query.answer()
+        await update.callback_query.answer(t(language, 'toast_referral'))
         await update.callback_query.edit_message_text(
-            text, reply_markup=back_to_menu_keyboard(language), parse_mode='Markdown'
+            text, reply_markup=back_to_more_keyboard(language), parse_mode='Markdown'
         )
     else:
         await update.message.reply_text(
-            text, reply_markup=back_to_menu_keyboard(language), parse_mode='Markdown'
+            text, reply_markup=back_to_more_keyboard(language), parse_mode='Markdown'
         )
 
 
@@ -300,17 +346,29 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.callback_query:
         await update.callback_query.answer()
         await update.callback_query.edit_message_text(
-            text, reply_markup=back_to_menu_keyboard(language), parse_mode='Markdown'
+            text, reply_markup=back_to_more_keyboard(language), parse_mode='Markdown'
         )
     else:
         await update.message.reply_text(
-            text, reply_markup=back_to_menu_keyboard(language), parse_mode='Markdown'
+            text, reply_markup=back_to_more_keyboard(language), parse_mode='Markdown'
         )
+
+
+async def more_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    user = await ensure_user(update)
+    language = user_language(user)
+    await query.answer(t(language, 'toast_more'))
+    text = f"{t(language, 'more_title')}\n\n{t(language, 'more_body')}"
+    await query.edit_message_text(
+        text, reply_markup=more_menu_keyboard(language), parse_mode='Markdown'
+    )
 
 
 async def main_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer()
+    user = await ensure_user(update)
+    await query.answer(t(user_language(user), 'toast_home'))
     context.user_data.pop('awaiting_ai', None)
     context.user_data.pop('awaiting_prompt_topic', None)
     context.user_data.pop('awaiting_prompt_vars', None)
@@ -331,12 +389,12 @@ async def main_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 async def ask_ai_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer()
-    if await check_maintenance(update):
-        return
-
     user = await ensure_user(update)
     language = user_language(user)
+    if await check_maintenance(update):
+        return
+    await query.answer(t(language, 'toast_ask'))
+
     ok, msg = await check_access(user)
     if not ok:
         await query.edit_message_text(msg, reply_markup=back_to_menu_keyboard(language))
@@ -354,21 +412,30 @@ async def ask_ai_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def prompts_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer()
+    user = await ensure_user(update)
+    language = user_language(user)
     if await check_maintenance(update):
         return
+    await query.answer(t(language, 'toast_library'))
 
     context.user_data.pop('awaiting_prompt_vars', None)
     context.user_data.pop('awaiting_prompt_topic', None)
     context.user_data.pop('selected_prompt_id', None)
     context.user_data.pop('prompt_var_values', None)
 
-    user = await ensure_user(update)
-    language = user_language(user)
+
+    text = f"{t(language, 'prompt_store_title')}\n\n{t(language, 'prompt_store_body')}"
+    top = get_popular_prompts(3)
+    if top:
+        lines = [
+            f"{p.get('icon') or '📌'} {prompt_title(p.get('title') or 'Prompt', language)}"
+            for p in top
+        ]
+        text += f"\n\n*{t(language, 'top_prompts_label')}*\n" + "\n".join(lines)
+
     await query.edit_message_text(
-        f"{t(language, 'prompt_store_title')}\n\n"
-        f"{t(language, 'prompt_store_body')}",
-        reply_markup=prompts_categories_keyboard(language),
+        text,
+        reply_markup=prompts_categories_keyboard(language, get_category_counts()),
         parse_mode='Markdown',
     )
 
@@ -396,7 +463,7 @@ async def user_category_callback(update: Update, context: ContextTypes.DEFAULT_T
         return
 
     await query.edit_message_text(
-        f"*{name}*\n\n{t(language, 'choose_prompt')}",
+        f"*{name}* · {len(prompts)}\n\n{t(language, 'choose_prompt')}",
         reply_markup=prompts_list_keyboard(prompts, category, language),
         parse_mode='Markdown',
     )
@@ -433,11 +500,10 @@ async def prompt_use_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     context.user_data.pop('awaiting_prompt_topic', None)
 
     if not variables:
-        # Нет переменных — сразу выполняем
+        # Нет переменных — сразу выполняем (анимация ожидания появится ниже)
         context.user_data.pop('awaiting_prompt_vars', None)
         await query.edit_message_text(
-            f"{icon} *{title}*\n\n{t(language, 'generating')}",
-            parse_mode='Markdown',
+            f"{icon} *{title}*", parse_mode='Markdown',
         )
         await execute_store_prompt(update, context, prompt, {})
         return
@@ -454,6 +520,45 @@ async def prompt_use_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     await query.edit_message_text(
         text, reply_markup=cancel_keyboard(language), parse_mode='Markdown'
     )
+
+
+def _thinking_frame(phase_text, progress, width=8):
+    bar = '▰' * progress + '▱' * (width - progress)
+    return f"{phase_text}\n{bar}"
+
+
+async def _animate_thinking(bot, wait_msg, language, category=None):
+    """Живое сообщение ожидания: фазы + прогресс-бар + chat action «печатает…»"""
+    phases = thinking_phases(language, category)
+    width = 8
+    tick = 0
+    # Начальное сообщение уже показывает первый кадр — не редактируем его повторно
+    last_text = _thinking_frame(phases[0], 1, width)
+    while True:
+        try:
+            await bot.send_chat_action(
+                chat_id=wait_msg.chat_id, action=ChatAction.TYPING
+            )
+        except Exception:
+            pass
+        # Фазы: 0-1 тик — анализ, 2-4 — середина, дальше — написание
+        if tick < 2:
+            phase = phases[0]
+        elif tick < 5:
+            phase = phases[1]
+        else:
+            phase = phases[2]
+        # Прогресс растёт, но не доходит до конца, пока нет ответа
+        progress = min(width - 1, 1 + tick)
+        text = _thinking_frame(phase, progress, width)
+        if text != last_text:
+            try:
+                await wait_msg.edit_text(text)
+                last_text = text
+            except Exception:
+                pass
+        tick += 1
+        await asyncio.sleep(2)
 
 
 async def process_ai_request(
@@ -477,15 +582,40 @@ async def process_ai_request(
     if not reply_target and update.callback_query:
         reply_target = update.callback_query.message
 
-    wait_msg = await reply_target.reply_text(t(language, 'thinking'))
+    # Категория и название сценария нужны заранее — для тематических фаз и шапки карточки
+    category = None
+    scenario_title = None
+    if prompt_id:
+        source_prompt = get_prompt(prompt_id)
+        if source_prompt:
+            category = source_prompt.get('category')
+            scenario_title = prompt_title(
+                source_prompt.get('title') or '', language
+            ) or None
+
+    wait_msg = await reply_target.reply_text(
+        _thinking_frame(thinking_phases(language, category)[0], 1)
+    )
+    anim_task = asyncio.create_task(
+        _animate_thinking(context.bot, wait_msg, language, category)
+    )
 
     localized_system = (
         f"{system_prompt or SYSTEM_PROMPT}\n\n"
         f"{response_language_instruction(language)}"
     )
-    response_text, input_tokens, output_tokens = call_claude(
-        prompt_text, system_prompt=localized_system
-    )
+    started_at = time.monotonic()
+    try:
+        response_text, input_tokens, output_tokens = await asyncio.to_thread(
+            call_claude, prompt_text, system_prompt=localized_system
+        )
+    finally:
+        anim_task.cancel()
+        try:
+            await anim_task
+        except asyncio.CancelledError:
+            pass
+    elapsed_seconds = max(1, int(time.monotonic() - started_at))
     total_tokens = input_tokens + output_tokens
 
     call_failed = (
@@ -517,6 +647,12 @@ async def process_ai_request(
 
     remaining = get_remaining_tokens(user['user_id'])
 
+    show_upgrade = False
+    requests_left_after = None
+    if not call_failed and user['subscription_status'] != 'active':
+        requests_left_after = get_free_requests_remaining(user['user_id'])
+        show_upgrade = requests_left_after is not None and requests_left_after <= 2
+
     chunks = []
     text = response_text
     while len(text) > 4000:
@@ -529,15 +665,35 @@ async def process_ai_request(
     except Exception:
         pass
 
+    divider = '━━━━━━━━━━━━━━'
+    brand = t(language, 'brand_header')
+    header = f"{brand} · {scenario_title}" if scenario_title else brand
+
     for i, chunk in enumerate(chunks):
+        if not call_failed and i == 0:
+            chunk = f"{header}\n{divider}\n{chunk}"
         if i == len(chunks) - 1:
-            footer = (
-                f"\n\n◇ {t(language, 'result_footer')}: "
-                f"{format_tokens(remaining)}"
-            )
+            if call_failed:
+                footer = (
+                    f"\n\n◇ {t(language, 'result_footer')}: "
+                    f"{format_tokens(remaining)}"
+                )
+            else:
+                footer = (
+                    f"\n{divider}\n"
+                    f"◇ {t(language, 'done_in', seconds=elapsed_seconds)}"
+                    f" · {t(language, 'result_footer')}: {format_tokens(remaining)}"
+                )
+            if show_upgrade:
+                footer += (
+                    f"\n⚡ {t(language, 'low_balance_nudge', remaining=requests_left_after)}"
+                )
             if len(chunk) + len(footer) < 4096:
                 chunk += footer
-        reply_markup = result_keyboard(language) if i == len(chunks) - 1 else None
+        reply_markup = (
+            result_keyboard(language, category=category, show_upgrade=show_upgrade)
+            if i == len(chunks) - 1 else None
+        )
         await reply_target.reply_text(chunk, reply_markup=reply_markup)
 
 
@@ -640,7 +796,6 @@ async def _handle_prompt_variables_input(update, context):
         context.user_data.pop('awaiting_prompt_vars', None)
         context.user_data.pop('selected_prompt_id', None)
         context.user_data.pop('prompt_var_values', None)
-        await update.message.reply_text(t(language, 'generating'))
         await execute_store_prompt(update, context, prompt, values)
         return
 
@@ -672,7 +827,6 @@ async def _handle_prompt_variables_input(update, context):
     context.user_data.pop('awaiting_prompt_vars', None)
     context.user_data.pop('selected_prompt_id', None)
     context.user_data.pop('prompt_var_values', None)
-    await update.message.reply_text(t(language, 'generating'))
     await execute_store_prompt(update, context, prompt, values)
 
 

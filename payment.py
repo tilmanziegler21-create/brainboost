@@ -73,14 +73,18 @@ async def buy(update: Update, context: ContextTypes.DEFAULT_TYPE):
     language = _language(update.effective_user.id)
     tokens = format_tokens(int(get_setting('subscription_tokens', '50000000')))
     days = get_setting('subscription_days', '30')
+    free_requests = get_setting('free_requests', '10')
+    free_cost = format_tokens(int(get_setting('free_request_cost', '100000')))
     text = (
         f"{t(language, 'buy_title')}\n"
         f"_{t(language, 'buy_tagline')}_\n\n"
+        f"{t(language, 'buy_compare', free_requests=free_requests, free_cost=free_cost, tokens=tokens, days=days)}\n\n"
         f"{t(language, 'buy_features', tokens=tokens, days=days)}\n\n"
+        f"{t(language, 'buy_trust')}\n\n"
         f"*{t(language, 'buy_choose')}*"
     )
     if update.callback_query:
-        await update.callback_query.answer()
+        await update.callback_query.answer(t(language, 'toast_buy'))
         await update.callback_query.edit_message_text(
             text, reply_markup=buy_keyboard(language), parse_mode='Markdown'
         )

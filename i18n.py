@@ -19,6 +19,44 @@ TRANSLATIONS = {
     'ru': {
         'select_language': '🌐 *Выберите язык*\n\nВы сможете изменить его в любой момент в настройках.',
         'language_changed': '✅ Язык интерфейса изменён.',
+        'menu_more': '⚙️ Ещё',
+        'more_title': '⚙️ *Ещё*',
+        'more_body': (
+            '👤 *Аккаунт* — тариф, лимиты и ID\n'
+            '🎁 *Бонус за друга* — доп. запросы за каждого приглашённого\n'
+            '🌐 *Язык* — сменить язык интерфейса\n'
+            '◦ *Как это работает* — короткий гайд'
+        ),
+        'similar_scenario': '🔁 Похожий сценарий',
+        'low_balance_nudge': 'Бесплатных запросов осталось: {remaining}. Откройте BrainBoost Pro — без ограничений.',
+        'buy_compare': (
+            '🆓 *Триал* → 💎 *Pro*\n'
+            '{free_requests} запросов → без дневных лимитов\n'
+            '{free_cost} на запрос → {tokens} токенов на {days} дней\n'
+            'Базовые сценарии → вся библиотека решений'
+        ),
+        'buy_trust': (
+            '🔒 Оплата разово, без автосписаний\n'
+            '✅ Проверка и активация вручную — обычно занимает несколько минут\n'
+            '💬 Мы на связи, если возникнут вопросы'
+        ),
+        'top_prompts_label': '🔥 Сейчас популярно',
+        'toast_ask': '✨ Новая задача',
+        'toast_library': '🧩 Библиотека решений',
+        'toast_buy': '💎 BrainBoost Pro',
+        'toast_profile': '👤 Ваш аккаунт',
+        'toast_referral': '🎁 Бонусы',
+        'toast_more': '⚙️ Ещё',
+        'toast_home': '⌂ Главное меню',
+        'greeting_back': 'С возвращением, {name} 👋',
+        'pro_days_left': 'ещё {days} дн.',
+        'done_in': 'Готово за {seconds} сек',
+        'brand_header': '✦ BRAINBOOST',
+        'onboarding_intro': '✦ *Добро пожаловать в BrainBoost*\n\n_Настраиваю ваше персональное пространство…_',
+        'pro_ceremony_title': '🎉 *BrainBoost Pro активирован!*',
+        'pro_ceremony_greeting': 'Добро пожаловать в клуб, {name}.',
+        'pro_ceremony_hint': '_Создайте первый результат прямо сейчас._',
+        'cta_first_result': '✨ Создать первый результат',
         'welcome_title': '✦ *BRAINBOOST AI*',
         'welcome_subtitle': 'Ваше персональное AI-пространство',
         'welcome_body': 'Превращайте идеи в готовый результат — быстрее, точнее и без сложных промтов.',
@@ -44,7 +82,13 @@ TRANSLATIONS = {
         'pro_exhausted': 'Баланс Pro исчерпан. Обновите подписку, чтобы продолжить.',
         'ask_title': '✨ *Новая задача*',
         'ask_body': 'Опишите, что хотите получить. Чем больше контекста — тем точнее результат.',
-        'ask_examples': '_Например: «Создай контент-план на неделю для кофейни»_',
+        'ask_examples': (
+            '*Примеры:*\n'
+            '• «Контент-план на неделю для кофейни»\n'
+            '• «Напиши функцию сортировки на Python»\n'
+            '• «Объясни квантовую физику простыми словами»\n'
+            '• «SWOT-анализ для стартапа доставки еды»'
+        ),
         'thinking': '✦ BrainBoost готовит результат…',
         'result_footer': 'Осталось',
         'prompt_store_title': '🧩 *Библиотека решений*',
@@ -131,6 +175,44 @@ TRANSLATIONS = {
     'en': {
         'select_language': '🌐 *Choose your language*\n\nYou can change it anytime in settings.',
         'language_changed': '✅ Interface language updated.',
+        'menu_more': '⚙️ More',
+        'more_title': '⚙️ *More*',
+        'more_body': (
+            '👤 *Account* — plan, limits and ID\n'
+            '🎁 *Referral bonus* — extra requests for every friend you invite\n'
+            '🌐 *Language* — change interface language\n'
+            '◦ *How it works* — a quick guide'
+        ),
+        'similar_scenario': '🔁 Similar scenario',
+        'low_balance_nudge': 'Free requests left: {remaining}. Unlock BrainBoost Pro for unlimited access.',
+        'buy_compare': (
+            '🆓 *Trial* → 💎 *Pro*\n'
+            '{free_requests} requests → no daily limits\n'
+            '{free_cost} per request → {tokens} tokens for {days} days\n'
+            'Basic scenarios → the full solution library'
+        ),
+        'buy_trust': (
+            '🔒 One-time payment, no auto-renewal\n'
+            '✅ Manual review and activation — usually within minutes\n'
+            '💬 We’re here if you have any questions'
+        ),
+        'top_prompts_label': '🔥 Trending now',
+        'toast_ask': '✨ New task',
+        'toast_library': '🧩 Solution Library',
+        'toast_buy': '💎 BrainBoost Pro',
+        'toast_profile': '👤 Your account',
+        'toast_referral': '🎁 Rewards',
+        'toast_more': '⚙️ More',
+        'toast_home': '⌂ Main menu',
+        'greeting_back': 'Welcome back, {name} 👋',
+        'pro_days_left': '{days} days left',
+        'done_in': 'Done in {seconds}s',
+        'brand_header': '✦ BRAINBOOST',
+        'onboarding_intro': '✦ *Welcome to BrainBoost*\n\n_Setting up your personal workspace…_',
+        'pro_ceremony_title': '🎉 *BrainBoost Pro is active!*',
+        'pro_ceremony_greeting': 'Welcome to the club, {name}.',
+        'pro_ceremony_hint': '_Create your first result right now._',
+        'cta_first_result': '✨ Create first result',
         'welcome_title': '✦ *BRAINBOOST AI*',
         'welcome_subtitle': 'Your private AI workspace',
         'welcome_body': 'Turn ideas into polished results — faster, sharper, without learning prompt engineering.',
@@ -156,7 +238,13 @@ TRANSLATIONS = {
         'pro_exhausted': 'Your Pro balance is depleted. Renew to continue.',
         'ask_title': '✨ *New task*',
         'ask_body': 'Tell us what you want to achieve. More context means a sharper result.',
-        'ask_examples': '_Example: “Create a one-week content plan for a coffee shop”_',
+        'ask_examples': (
+            '*Examples:*\n'
+            '• “Weekly content plan for a coffee shop”\n'
+            '• “Write a sorting function in Python”\n'
+            '• “Explain quantum physics in simple terms”\n'
+            '• “SWOT analysis for a food delivery startup”'
+        ),
         'thinking': '✦ BrainBoost is crafting your result…',
         'result_footer': 'Remaining',
         'prompt_store_title': '🧩 *Solution Library*',
@@ -220,6 +308,43 @@ TRANSLATIONS['uk'] = {
     **TRANSLATIONS['en'],
     'select_language': '🌐 *Оберіть мову*\n\nВи зможете змінити її будь-коли в налаштуваннях.',
     'language_changed': '✅ Мову інтерфейсу змінено.',
+    'menu_more': '⚙️ Ще',
+    'more_title': '⚙️ *Ще*',
+    'more_body': (
+        '👤 *Акаунт* — тариф, ліміти та ID\n'
+        '🎁 *Бонус за друга* — додаткові запити за кожного запрошеного\n'
+        '🌐 *Мова* — змінити мову інтерфейсу\n'
+        '◦ *Як це працює* — короткий гайд'
+    ),
+    'similar_scenario': '🔁 Схожий сценарій',
+    'low_balance_nudge': 'Безкоштовних запитів залишилось: {remaining}. Відкрийте BrainBoost Pro — без обмежень.',
+    'buy_compare': (
+        '🆓 *Тріал* → 💎 *Pro*\n'
+        '{free_requests} запитів → без денних лімітів\n'
+        '{free_cost} за запит → {tokens} токенів на {days} днів\n'
+        'Базові сценарії → вся бібліотека рішень'
+    ),
+    'buy_trust': (
+        '🔒 Оплата одноразова, без автосписань\n'
+        '✅ Перевірка та активація вручну — зазвичай кілька хвилин\n'
+        '💬 Ми на зв\'язку, якщо виникнуть питання'
+    ),
+    'top_prompts_label': '🔥 Популярне зараз',
+    'toast_ask': '✨ Нове завдання',
+    'toast_library': '🧩 Бібліотека рішень',
+    'toast_buy': '💎 BrainBoost Pro',
+    'toast_profile': '👤 Ваш акаунт',
+    'toast_referral': '🎁 Бонуси',
+    'toast_more': '⚙️ Ще',
+    'toast_home': '⌂ Головне меню',
+    'greeting_back': 'З поверненням, {name} 👋',
+    'pro_days_left': 'ще {days} дн.',
+    'done_in': 'Готово за {seconds} сек',
+    'onboarding_intro': '✦ *Ласкаво просимо до BrainBoost*\n\n_Налаштовую ваш персональний простір…_',
+    'pro_ceremony_title': '🎉 *BrainBoost Pro активовано!*',
+    'pro_ceremony_greeting': 'Ласкаво просимо до клубу, {name}.',
+    'pro_ceremony_hint': '_Створіть перший результат просто зараз._',
+    'cta_first_result': '✨ Створити перший результат',
     'welcome_subtitle': 'Ваш персональний AI-простір',
     'welcome_body': 'Перетворюйте ідеї на готовий результат — швидше, точніше та без складних промтів.',
     'welcome_trial': 'Пробний доступ', 'welcome_pro': 'BrainBoost Pro',
@@ -259,7 +384,13 @@ TRANSLATIONS['uk'] = {
     'pro_exhausted': 'Баланс Pro вичерпано. Оновіть підписку, щоб продовжити.',
     'ask_title': '✨ *Нове завдання*',
     'ask_body': 'Опишіть, що хочете отримати. Більше контексту — точніший результат.',
-    'ask_examples': '_Наприклад: «Створи контент-план на тиждень для кавʼярні»_',
+    'ask_examples': (
+        '*Приклади:*\n'
+        '• «Контент-план на тиждень для кав\'ярні»\n'
+        '• «Напиши функцію сортування на Python»\n'
+        '• «Поясни квантову фізику простими словами»\n'
+        '• «SWOT-аналіз для стартапу доставки їжі»'
+    ),
     'restart_prompt': 'Оберіть рішення знову в бібліотеці.',
     'var_topic': 'тему або контекст', 'var_task': 'завдання',
     'var_style': 'стиль і тон', 'var_audience': 'цільову аудиторію',
@@ -296,6 +427,43 @@ TRANSLATIONS['de'] = {
     **TRANSLATIONS['en'],
     'select_language': '🌐 *Sprache wählen*\n\nDu kannst sie jederzeit in den Einstellungen ändern.',
     'language_changed': '✅ Sprache wurde geändert.',
+    'menu_more': '⚙️ Mehr',
+    'more_title': '⚙️ *Mehr*',
+    'more_body': (
+        '👤 *Konto* — Tarif, Limits und ID\n'
+        '🎁 *Empfehlungsbonus* — mehr Anfragen für jeden eingeladenen Freund\n'
+        '🌐 *Sprache* — Oberflächensprache ändern\n'
+        '◦ *So funktioniert’s* — kurze Anleitung'
+    ),
+    'similar_scenario': '🔁 Ähnliches Szenario',
+    'low_balance_nudge': 'Verbleibende kostenlose Anfragen: {remaining}. Schalte BrainBoost Pro frei — ohne Limits.',
+    'buy_compare': (
+        '🆓 *Test* → 💎 *Pro*\n'
+        '{free_requests} Anfragen → keine Tageslimits\n'
+        '{free_cost} pro Anfrage → {tokens} Tokens für {days} Tage\n'
+        'Basis-Szenarien → die gesamte Lösungsbibliothek'
+    ),
+    'buy_trust': (
+        '🔒 Einmalige Zahlung, keine automatische Verlängerung\n'
+        '✅ Manuelle Prüfung und Aktivierung — meist innerhalb von Minuten\n'
+        '💬 Wir sind für Fragen erreichbar'
+    ),
+    'top_prompts_label': '🔥 Gerade beliebt',
+    'toast_ask': '✨ Neue Aufgabe',
+    'toast_library': '🧩 Lösungsbibliothek',
+    'toast_buy': '💎 BrainBoost Pro',
+    'toast_profile': '👤 Dein Konto',
+    'toast_referral': '🎁 Boni',
+    'toast_more': '⚙️ Mehr',
+    'toast_home': '⌂ Hauptmenü',
+    'greeting_back': 'Willkommen zurück, {name} 👋',
+    'pro_days_left': 'noch {days} Tage',
+    'done_in': 'Fertig in {seconds} Sek.',
+    'onboarding_intro': '✦ *Willkommen bei BrainBoost*\n\n_Dein persönlicher Workspace wird eingerichtet…_',
+    'pro_ceremony_title': '🎉 *BrainBoost Pro ist aktiv!*',
+    'pro_ceremony_greeting': 'Willkommen im Club, {name}.',
+    'pro_ceremony_hint': '_Erstelle jetzt dein erstes Ergebnis._',
+    'cta_first_result': '✨ Erstes Ergebnis erstellen',
     'welcome_subtitle': 'Dein persönlicher AI-Workspace',
     'welcome_body': 'Verwandle Ideen in fertige Ergebnisse — schneller, präziser und ohne komplizierte Prompts.',
     'welcome_trial': 'Testzugang', 'requests_left': 'Verfügbar', 'tokens_left': 'Guthaben',
@@ -334,7 +502,13 @@ TRANSLATIONS['de'] = {
     'pro_exhausted': 'Dein Pro-Guthaben ist aufgebraucht. Bitte verlängere deinen Tarif.',
     'ask_title': '✨ *Neue Aufgabe*',
     'ask_body': 'Beschreibe dein gewünschtes Ergebnis. Mehr Kontext sorgt für höhere Präzision.',
-    'ask_examples': '_Beispiel: „Erstelle einen Content-Plan für ein Café“_',
+    'ask_examples': (
+        '*Beispiele:*\n'
+        '• „Wochenplan für ein Café“\n'
+        '• „Schreibe eine Sortierfunktion in Python“\n'
+        '• „Erkläre Quantenphysik einfach“\n'
+        '• „SWOT-Analyse für ein Lieferdienst-Startup“'
+    ),
     'restart_prompt': 'Bitte wähle die Lösung erneut aus der Bibliothek.',
     'var_topic': 'Thema oder Kontext', 'var_task': 'Aufgabe',
     'var_style': 'Stil und Ton', 'var_audience': 'Zielgruppe',
@@ -371,6 +545,43 @@ TRANSLATIONS['es'] = {
     **TRANSLATIONS['en'],
     'select_language': '🌐 *Elige tu idioma*\n\nPuedes cambiarlo cuando quieras en los ajustes.',
     'language_changed': '✅ Idioma actualizado.',
+    'menu_more': '⚙️ Más',
+    'more_title': '⚙️ *Más*',
+    'more_body': (
+        '👤 *Cuenta* — plan, límites e ID\n'
+        '🎁 *Bono por referido* — solicitudes extra por cada amigo invitado\n'
+        '🌐 *Idioma* — cambiar el idioma\n'
+        '◦ *Cómo funciona* — una guía rápida'
+    ),
+    'similar_scenario': '🔁 Escenario similar',
+    'low_balance_nudge': 'Solicitudes gratis restantes: {remaining}. Desbloquea BrainBoost Pro sin límites.',
+    'buy_compare': (
+        '🆓 *Prueba* → 💎 *Pro*\n'
+        '{free_requests} solicitudes → sin límites diarios\n'
+        '{free_cost} por solicitud → {tokens} tokens durante {days} días\n'
+        'Escenarios básicos → la biblioteca completa'
+    ),
+    'buy_trust': (
+        '🔒 Pago único, sin renovación automática\n'
+        '✅ Revisión y activación manual — normalmente en minutos\n'
+        '💬 Estamos disponibles si tienes dudas'
+    ),
+    'top_prompts_label': '🔥 Popular ahora',
+    'toast_ask': '✨ Nueva tarea',
+    'toast_library': '🧩 Biblioteca de soluciones',
+    'toast_buy': '💎 BrainBoost Pro',
+    'toast_profile': '👤 Tu cuenta',
+    'toast_referral': '🎁 Bonos',
+    'toast_more': '⚙️ Más',
+    'toast_home': '⌂ Menú principal',
+    'greeting_back': 'Bienvenido de nuevo, {name} 👋',
+    'pro_days_left': 'quedan {days} días',
+    'done_in': 'Listo en {seconds} s',
+    'onboarding_intro': '✦ *Bienvenido a BrainBoost*\n\n_Preparando tu espacio personal…_',
+    'pro_ceremony_title': '🎉 *¡BrainBoost Pro está activo!*',
+    'pro_ceremony_greeting': 'Bienvenido al club, {name}.',
+    'pro_ceremony_hint': '_Crea tu primer resultado ahora mismo._',
+    'cta_first_result': '✨ Crear primer resultado',
     'welcome_subtitle': 'Tu espacio personal de IA',
     'welcome_body': 'Convierte ideas en resultados listos — más rápido, preciso y sin prompts complicados.',
     'welcome_trial': 'Acceso de prueba', 'requests_left': 'Disponible',
@@ -410,7 +621,13 @@ TRANSLATIONS['es'] = {
     'pro_exhausted': 'Tu saldo Pro se agotó. Renueva el plan para continuar.',
     'ask_title': '✨ *Nueva tarea*',
     'ask_body': 'Describe el resultado que buscas. Cuanto más contexto, mayor precisión.',
-    'ask_examples': '_Ejemplo: «Crea un plan de contenidos semanal para una cafetería»_',
+    'ask_examples': (
+        '*Ejemplos:*\n'
+        '• «Plan de contenidos semanal para una cafetería»\n'
+        '• «Escribe una función de ordenamiento en Python»\n'
+        '• «Explica la física cuántica de forma simple»\n'
+        '• «Análisis SWOT para una startup de reparto»'
+    ),
     'restart_prompt': 'Vuelve a elegir la solución en la biblioteca.',
     'var_topic': 'tema o contexto', 'var_task': 'tarea',
     'var_style': 'estilo y tono', 'var_audience': 'público objetivo',
@@ -565,6 +782,80 @@ PROMPT_TITLE_TRANSLATIONS = {
     'Личные цели': {'en': 'Personal Goals', 'uk': 'Особисті цілі', 'de': 'Persönliche Ziele', 'es': 'Metas personales'},
     'Утренняя аффирмация': {'en': 'Morning Affirmations', 'uk': 'Ранкові афірмації', 'de': 'Morgenaffirmationen', 'es': 'Afirmaciones matutinas'},
 }
+
+
+# Фазы «обдумывания» для живой анимации ожидания.
+# 3 фазы: анализ → тематическая середина (по категории сценария) → написание.
+THINKING_PHASES = {
+    'ru': {
+        'start': '✦ Анализирую задачу…',
+        'middle': '✦ Подбираю структуру ответа…',
+        'finish': '✦ Пишу результат…',
+        'marketing': '✦ Изучаю аудиторию и тренды…',
+        'code': '✦ Проверяю логику и edge cases…',
+        'study': '✦ Подбираю понятные объяснения…',
+        'health': '✦ Сверяюсь с безопасными практиками…',
+        'business': '✦ Считаю цифры и риски…',
+        'creativity': '✦ Ищу свежие идеи…',
+        'life': '✦ Взвешиваю варианты…',
+    },
+    'en': {
+        'start': '✦ Analyzing your task…',
+        'middle': '✦ Structuring the answer…',
+        'finish': '✦ Writing the result…',
+        'marketing': '✦ Studying the audience and trends…',
+        'code': '✦ Checking logic and edge cases…',
+        'study': '✦ Finding clear explanations…',
+        'health': '✦ Reviewing safe practices…',
+        'business': '✦ Crunching numbers and risks…',
+        'creativity': '✦ Hunting for fresh ideas…',
+        'life': '✦ Weighing the options…',
+    },
+    'uk': {
+        'start': '✦ Аналізую завдання…',
+        'middle': '✦ Підбираю структуру відповіді…',
+        'finish': '✦ Пишу результат…',
+        'marketing': '✦ Вивчаю аудиторію та тренди…',
+        'code': '✦ Перевіряю логіку та edge cases…',
+        'study': '✦ Підбираю зрозумілі пояснення…',
+        'health': '✦ Звіряюся з безпечними практиками…',
+        'business': '✦ Рахую цифри та ризики…',
+        'creativity': '✦ Шукаю свіжі ідеї…',
+        'life': '✦ Зважую варіанти…',
+    },
+    'de': {
+        'start': '✦ Aufgabe wird analysiert…',
+        'middle': '✦ Antwortstruktur wird erstellt…',
+        'finish': '✦ Ergebnis wird geschrieben…',
+        'marketing': '✦ Zielgruppe und Trends werden geprüft…',
+        'code': '✦ Logik und Edge Cases werden geprüft…',
+        'study': '✦ Verständliche Erklärungen werden gesucht…',
+        'health': '✦ Sichere Praktiken werden geprüft…',
+        'business': '✦ Zahlen und Risiken werden kalkuliert…',
+        'creativity': '✦ Frische Ideen werden gesucht…',
+        'life': '✦ Optionen werden abgewogen…',
+    },
+    'es': {
+        'start': '✦ Analizando tu tarea…',
+        'middle': '✦ Estructurando la respuesta…',
+        'finish': '✦ Escribiendo el resultado…',
+        'marketing': '✦ Estudiando la audiencia y tendencias…',
+        'code': '✦ Revisando lógica y casos límite…',
+        'study': '✦ Buscando explicaciones claras…',
+        'health': '✦ Revisando prácticas seguras…',
+        'business': '✦ Calculando cifras y riesgos…',
+        'creativity': '✦ Buscando ideas frescas…',
+        'life': '✦ Sopesando las opciones…',
+    },
+}
+
+
+def thinking_phases(language, category=None):
+    """Список из 3 фаз обдумывания; середина — тематическая, если знаем категорию"""
+    language = normalize_language(language)
+    phrases = THINKING_PHASES.get(language, THINKING_PHASES['en'])
+    middle = phrases.get(category) or phrases['middle']
+    return [phrases['start'], middle, phrases['finish']]
 
 
 def normalize_language(language):

@@ -22,7 +22,7 @@ from handlers import (
     user_category_callback, prompt_use_callback,
     buy_callback, profile_callback, referral_callback, help_callback,
     admin_panel_callback, language_command, language_callback,
-    language_menu_callback,
+    language_menu_callback, more_menu_callback,
 )
 from admin_panel import (
     admin_panel, admin_stats, admin_payments, admin_settings, admin_claude,
@@ -97,6 +97,7 @@ def main():
     app.add_handler(CallbackQueryHandler(referral_callback, pattern="^referral$"))
     app.add_handler(CallbackQueryHandler(help_callback, pattern="^help$"))
     app.add_handler(CallbackQueryHandler(language_menu_callback, pattern="^language$"))
+    app.add_handler(CallbackQueryHandler(more_menu_callback, pattern="^more_menu$"))
     app.add_handler(CallbackQueryHandler(language_callback, pattern="^lang_(ru|en|uk|de|es)$"))
     app.add_handler(CallbackQueryHandler(admin_panel_callback, pattern="^admin_panel$"))
 
