@@ -68,7 +68,7 @@ TRANSLATIONS = {
         'menu_ask': '✨ Спросить AI',
         'menu_prompts': '🧩 Библиотека решений',
         'menu_profile': '👤 Аккаунт',
-        'menu_buy': '💎 Получить Pro',
+        'menu_buy': '⚡️ Убрать лимиты (Pro)',
         'menu_referral': '🎁 Получить бонус',
         'menu_language': '🌐 Язык',
         'menu_help': '◦ Как это работает',
@@ -84,10 +84,9 @@ TRANSLATIONS = {
         'ask_body': 'Опишите, что хотите получить. Чем больше контекста — тем точнее результат.',
         'ask_examples': (
             '*Примеры:*\n'
-            '• «Контент-план на неделю для кофейни»\n'
-            '• «Напиши функцию сортировки на Python»\n'
-            '• «Объясни квантовую физику простыми словами»\n'
-            '• «SWOT-анализ для стартапа доставки еды»'
+            '• «Напиши код парсера сайтов на Python»\n'
+            '• «Составь воронку продаж для Telegram-канала»\n'
+            '• «Проанализируй финансовый отчёт и сделай выводы»'
         ),
         'thinking': '✦ BrainBoost готовит результат…',
         'result_footer': 'Осталось',
@@ -139,7 +138,38 @@ TRANSLATIONS = {
         'help_payment': 'Оплата Pro доступна в UAH, EUR и USDT. После оплаты отправьте подтверждение — активация выполняется вручную.',
         'buy_title': '💎 *BrainBoost Pro*',
         'buy_tagline': 'Больше возможностей. Больше готовых результатов.',
-        'buy_features': '✓ {tokens} токенов\n✓ {days} дней доступа\n✓ Вся библиотека решений\n✓ Приоритетные AI-модели',
+        'buy_features': (
+            '✓ Неограниченный объём: генерация кода, статей и аналитики без обрывов текста\n'
+            '✓ Профессиональная нейросеть: максимальная логика, отсутствие «галлюцинаций», решение сложных рабочих задач\n'
+            '✓ Разблокировка всех закрытых инструментов (Бизнес, Разработка, Маркетинг)'
+        ),
+        'choose_plan': 'Выберите тариф:',
+        'plan_1m': '1 месяц — {price} €',
+        'plan_3m': '🔥 3 месяца — {price} € · Выгода {pct}%',
+        'plan_6m': '💎 6 месяцев — {price} € · Выгода {pct}%',
+        'plan_name_1': '1 месяц',
+        'plan_name_3': '3 месяца',
+        'plan_name_6': '6 месяцев',
+        'buy_social': '📈 Уже {n}+ специалистов работают в Pro',
+        'buy_anchor': '💶 На тарифе 6 месяцев месяц выходит {per_month} € вместо {full} €',
+        'buy_instant': '⚡️ Доступ включается сразу после подтверждения оплаты',
+        'locked_preview': '🔒 Внутри категории «{category}»:',
+        'locked_more_tools': '…и ещё {n} инструментов',
+        'renewal_reminder': (
+            '⏳ *Pro истекает через {days} дн.*\n\n'
+            'Продлите доступ сейчас, чтобы не потерять безлимитную генерацию '
+            'и библиотеку решений.'
+        ),
+        'renewal_today': (
+            '⏳ *Pro истекает сегодня.*\n\n'
+            'Продлите доступ сейчас, чтобы не потерять безлимитную генерацию '
+            'и библиотеку решений.'
+        ),
+        'back_plans': '‹ Другой тариф',
+        'category_locked': 'Инструменты этой категории доступны только в версии Pro.',
+        'limit_locked': 'Бесплатный лимит исчерпан. Система заблокирована. Оформите Pro для продолжения работы.',
+        'home_workspace': 'Рабочая среда BrainBoost.',
+        'home_free_left': 'Остаток бесплатных операций: {left} из {total}.',
         'buy_choose': 'Выберите удобный способ оплаты:',
         'buy_card_uah': 'Карта UAH · {price} ₴',
         'buy_card_eur': 'Карта EUR · {price} €',
@@ -224,7 +254,7 @@ TRANSLATIONS = {
         'menu_ask': '✨ Ask AI',
         'menu_prompts': '🧩 Solution Library',
         'menu_profile': '👤 Account',
-        'menu_buy': '💎 Get Pro',
+        'menu_buy': '⚡️ Remove limits (Pro)',
         'menu_referral': '🎁 Earn rewards',
         'menu_language': '🌐 Language',
         'menu_help': '◦ How it works',
@@ -240,10 +270,9 @@ TRANSLATIONS = {
         'ask_body': 'Tell us what you want to achieve. More context means a sharper result.',
         'ask_examples': (
             '*Examples:*\n'
-            '• “Weekly content plan for a coffee shop”\n'
-            '• “Write a sorting function in Python”\n'
-            '• “Explain quantum physics in simple terms”\n'
-            '• “SWOT analysis for a food delivery startup”'
+            '• “Write a website scraper in Python”\n'
+            '• “Build a sales funnel for a Telegram channel”\n'
+            '• “Analyze this financial report and draw conclusions”'
         ),
         'thinking': '✦ BrainBoost is crafting your result…',
         'result_footer': 'Remaining',
@@ -278,7 +307,36 @@ TRANSLATIONS = {
         'help_body': '1. Describe your task — or choose a ready-made solution.\n2. Answer a few quick questions.\n3. Get a polished text, plan, code or idea.\n\n*Tip:* include the audience, goal and preferred tone for a sharper result.',
         'help_payment': 'Pro is available via UAH, EUR and USDT. Send payment proof for manual activation.',
         'buy_title': '💎 *BrainBoost Pro*', 'buy_tagline': 'More power. More finished results.',
-        'buy_features': '✓ {tokens} tokens\n✓ {days} days of access\n✓ Full solution library\n✓ Priority AI models',
+        'buy_features': (
+            '✓ Unlimited volume: code, articles and analytics without cut-off text\n'
+            '✓ Professional AI: maximum reasoning, no hallucinations, complex work tasks solved\n'
+            '✓ Unlock all premium tools (Business, Development, Marketing)'
+        ),
+        'choose_plan': 'Choose your plan:',
+        'plan_1m': '1 month — {price} €',
+        'plan_3m': '🔥 3 months — {price} € · Save {pct}%',
+        'plan_6m': '💎 6 months — {price} € · Save {pct}%',
+        'plan_name_1': '1 month',
+        'plan_name_3': '3 months',
+        'plan_name_6': '6 months',
+        'buy_social': '📈 {n}+ professionals already work in Pro',
+        'buy_anchor': '💶 On the 6-month plan a month costs {per_month} € instead of {full} €',
+        'buy_instant': '⚡️ Access is unlocked right after payment confirmation',
+        'locked_preview': '🔒 Inside the "{category}" category:',
+        'locked_more_tools': '…and {n} more tools',
+        'renewal_reminder': (
+            '⏳ *Your Pro expires in {days} day(s).*\n\n'
+            'Renew now to keep unlimited generation and the full solution library.'
+        ),
+        'renewal_today': (
+            '⏳ *Your Pro expires today.*\n\n'
+            'Renew now to keep unlimited generation and the full solution library.'
+        ),
+        'back_plans': '‹ Other plan',
+        'category_locked': 'Tools in this category are available in the Pro version only.',
+        'limit_locked': 'Free limit reached. The system is locked. Upgrade to Pro to continue working.',
+        'home_workspace': 'BrainBoost workspace.',
+        'home_free_left': 'Free operations left: {left} of {total}.',
         'buy_choose': 'Choose your payment method:',
         'buy_card_uah': 'UAH card · {price} ₴', 'buy_card_eur': 'EUR card · {price} €',
         'buy_usdt': 'USDT TRC20 · {price} $', 'payment_unavailable': 'This payment method is temporarily unavailable.',
@@ -350,7 +408,7 @@ TRANSLATIONS['uk'] = {
     'welcome_trial': 'Пробний доступ', 'welcome_pro': 'BrainBoost Pro',
     'requests_left': 'Доступно', 'tokens_left': 'Баланс', 'choose_action': 'З чого почнемо?',
     'menu_ask': '✨ Запитати AI', 'menu_prompts': '🧩 Бібліотека рішень',
-    'menu_profile': '👤 Акаунт', 'menu_buy': '💎 Отримати Pro',
+    'menu_profile': '👤 Акаунт', 'menu_buy': '⚡️ Зняти ліміти (Pro)',
     'menu_referral': '🎁 Отримати бонус', 'menu_language': '🌐 Мова',
     'menu_help': '◦ Як це працює', 'back': '‹ Назад', 'back_menu': '⌂ Головне меню',
     'cancel': 'Скасувати', 'thinking': '✦ BrainBoost готує результат…',
@@ -375,7 +433,38 @@ TRANSLATIONS['uk'] = {
     'ref_progress': 'Ваш прогрес', 'ref_link': 'Персональне посилання',
     'ref_note': 'Бонус доступний з активним Pro. Максимум: {max_refs}.',
     'buy_title': '💎 *BrainBoost Pro*', 'buy_tagline': 'Більше можливостей. Більше готових результатів.',
-    'buy_features': '✓ {tokens} токенів\n✓ {days} днів доступу\n✓ Уся бібліотека рішень\n✓ Пріоритетні AI-моделі',
+    'buy_features': (
+        '✓ Необмежений обсяг: генерація коду, статей та аналітики без обривів тексту\n'
+        '✓ Професійна нейромережа: максимальна логіка, без «галюцинацій», вирішення складних робочих задач\n'
+        '✓ Розблокування всіх закритих інструментів (Бізнес, Розробка, Маркетинг)'
+    ),
+    'choose_plan': 'Оберіть тариф:',
+    'plan_1m': '1 місяць — {price} €',
+    'plan_3m': '🔥 3 місяці — {price} € · Вигода {pct}%',
+    'plan_6m': '💎 6 місяців — {price} € · Вигода {pct}%',
+    'plan_name_1': '1 місяць',
+    'plan_name_3': '3 місяці',
+    'plan_name_6': '6 місяців',
+    'buy_social': '📈 Вже {n}+ фахівців працюють у Pro',
+    'buy_anchor': '💶 На тарифі 6 місяців місяць виходить {per_month} € замість {full} €',
+    'buy_instant': '⚡️ Доступ вмикається одразу після підтвердження оплати',
+    'locked_preview': '🔒 Всередині категорії «{category}»:',
+    'locked_more_tools': '…і ще {n} інструментів',
+    'renewal_reminder': (
+        '⏳ *Pro закінчується через {days} дн.*\n\n'
+        'Продовжте доступ зараз, щоб не втратити безлімітну генерацію '
+        'та бібліотеку рішень.'
+    ),
+    'renewal_today': (
+        '⏳ *Pro закінчується сьогодні.*\n\n'
+        'Продовжте доступ зараз, щоб не втратити безлімітну генерацію '
+        'та бібліотеку рішень.'
+    ),
+    'back_plans': '‹ Інший тариф',
+    'category_locked': 'Інструменти цієї категорії доступні лише у версії Pro.',
+    'limit_locked': 'Безкоштовний ліміт вичерпано. Систему заблоковано. Оформіть Pro, щоб продовжити роботу.',
+    'home_workspace': 'Робоче середовище BrainBoost.',
+    'home_free_left': 'Залишок безкоштовних операцій: {left} з {total}.',
     'buy_choose': 'Оберіть спосіб оплати:', 'i_paid': 'Я оплатив',
     'payment_review': 'Перевірка зазвичай займає кілька хвилин.',
     'maintenance': '🛠 BrainBoost оновлюється. Ми скоро повернемось.',
@@ -386,10 +475,9 @@ TRANSLATIONS['uk'] = {
     'ask_body': 'Опишіть, що хочете отримати. Більше контексту — точніший результат.',
     'ask_examples': (
         '*Приклади:*\n'
-        '• «Контент-план на тиждень для кав\'ярні»\n'
-        '• «Напиши функцію сортування на Python»\n'
-        '• «Поясни квантову фізику простими словами»\n'
-        '• «SWOT-аналіз для стартапу доставки їжі»'
+        '• «Напиши код парсера сайтів на Python»\n'
+        '• «Склади воронку продажів для Telegram-каналу»\n'
+        '• «Проаналізуй фінансовий звіт і зроби висновки»'
     ),
     'restart_prompt': 'Оберіть рішення знову в бібліотеці.',
     'var_topic': 'тему або контекст', 'var_task': 'завдання',
@@ -469,7 +557,7 @@ TRANSLATIONS['de'] = {
     'welcome_trial': 'Testzugang', 'requests_left': 'Verfügbar', 'tokens_left': 'Guthaben',
     'choose_action': 'Womit starten wir?', 'menu_ask': '✨ AI fragen',
     'menu_prompts': '🧩 Lösungsbibliothek', 'menu_profile': '👤 Konto',
-    'menu_buy': '💎 Pro freischalten', 'menu_referral': '🎁 Bonus erhalten',
+    'menu_buy': '⚡️ Limits aufheben (Pro)', 'menu_referral': '🎁 Bonus erhalten',
     'menu_language': '🌐 Sprache', 'menu_help': '◦ So funktioniert es',
     'back': '‹ Zurück', 'back_menu': '⌂ Hauptmenü', 'cancel': 'Abbrechen',
     'thinking': '✦ BrainBoost erstellt dein Ergebnis…', 'result_footer': 'Verfügbar',
@@ -493,7 +581,38 @@ TRANSLATIONS['de'] = {
     'ref_progress': 'Dein Fortschritt', 'ref_link': 'Persönlicher Link',
     'ref_note': 'Bonus mit aktivem Pro-Tarif. Maximum: {max_refs}.',
     'buy_title': '💎 *BrainBoost Pro*', 'buy_tagline': 'Mehr Leistung. Mehr fertige Ergebnisse.',
-    'buy_features': '✓ {tokens} Tokens\n✓ {days} Tage Zugriff\n✓ Gesamte Lösungsbibliothek\n✓ Priorisierte AI-Modelle',
+    'buy_features': (
+        '✓ Unbegrenztes Volumen: Code, Artikel und Analysen ohne abgeschnittene Texte\n'
+        '✓ Professionelle KI: maximale Logik, keine Halluzinationen, komplexe Arbeitsaufgaben\n'
+        '✓ Freischaltung aller Premium-Tools (Business, Entwicklung, Marketing)'
+    ),
+    'choose_plan': 'Tarif wählen:',
+    'plan_1m': '1 Monat — {price} €',
+    'plan_3m': '🔥 3 Monate — {price} € · {pct}% sparen',
+    'plan_6m': '💎 6 Monate — {price} € · {pct}% sparen',
+    'plan_name_1': '1 Monat',
+    'plan_name_3': '3 Monate',
+    'plan_name_6': '6 Monate',
+    'buy_social': '📈 Schon {n}+ Profis arbeiten mit Pro',
+    'buy_anchor': '💶 Im 6-Monats-Tarif kostet ein Monat {per_month} € statt {full} €',
+    'buy_instant': '⚡️ Der Zugang wird sofort nach Zahlungsbestätigung freigeschaltet',
+    'locked_preview': '🔒 In der Kategorie „{category}“:',
+    'locked_more_tools': '…und {n} weitere Tools',
+    'renewal_reminder': (
+        '⏳ *Dein Pro läuft in {days} Tag(en) ab.*\n\n'
+        'Verlängere jetzt, um unbegrenzte Generierung und die '
+        'Lösungsbibliothek zu behalten.'
+    ),
+    'renewal_today': (
+        '⏳ *Dein Pro läuft heute ab.*\n\n'
+        'Verlängere jetzt, um unbegrenzte Generierung und die '
+        'Lösungsbibliothek zu behalten.'
+    ),
+    'back_plans': '‹ Anderer Tarif',
+    'category_locked': 'Die Tools dieser Kategorie sind nur in der Pro-Version verfügbar.',
+    'limit_locked': 'Kostenloses Limit erreicht. Das System ist gesperrt. Hole dir Pro, um weiterzuarbeiten.',
+    'home_workspace': 'BrainBoost-Arbeitsumgebung.',
+    'home_free_left': 'Verbleibende kostenlose Vorgänge: {left} von {total}.',
     'buy_choose': 'Zahlungsmethode wählen:', 'i_paid': 'Ich habe bezahlt',
     'payment_review': 'Die Prüfung dauert normalerweise nur wenige Minuten.',
     'maintenance': '🛠 BrainBoost wird aktualisiert. Wir sind gleich zurück.',
@@ -504,10 +623,9 @@ TRANSLATIONS['de'] = {
     'ask_body': 'Beschreibe dein gewünschtes Ergebnis. Mehr Kontext sorgt für höhere Präzision.',
     'ask_examples': (
         '*Beispiele:*\n'
-        '• „Wochenplan für ein Café“\n'
-        '• „Schreibe eine Sortierfunktion in Python“\n'
-        '• „Erkläre Quantenphysik einfach“\n'
-        '• „SWOT-Analyse für ein Lieferdienst-Startup“'
+        '• „Schreibe einen Website-Parser in Python“\n'
+        '• „Erstelle einen Sales-Funnel für einen Telegram-Kanal“\n'
+        '• „Analysiere diesen Finanzbericht und ziehe Schlüsse“'
     ),
     'restart_prompt': 'Bitte wähle die Lösung erneut aus der Bibliothek.',
     'var_topic': 'Thema oder Kontext', 'var_task': 'Aufgabe',
@@ -587,7 +705,7 @@ TRANSLATIONS['es'] = {
     'welcome_trial': 'Acceso de prueba', 'requests_left': 'Disponible',
     'tokens_left': 'Saldo', 'choose_action': '¿Qué creamos hoy?',
     'menu_ask': '✨ Preguntar a la IA', 'menu_prompts': '🧩 Biblioteca de soluciones',
-    'menu_profile': '👤 Cuenta', 'menu_buy': '💎 Obtener Pro',
+    'menu_profile': '👤 Cuenta', 'menu_buy': '⚡️ Quitar límites (Pro)',
     'menu_referral': '🎁 Ganar bonos', 'menu_language': '🌐 Idioma',
     'menu_help': '◦ Cómo funciona', 'back': '‹ Volver', 'back_menu': '⌂ Menú principal',
     'cancel': 'Cancelar', 'thinking': '✦ BrainBoost está creando tu resultado…',
@@ -612,7 +730,38 @@ TRANSLATIONS['es'] = {
     'ref_progress': 'Tu progreso', 'ref_link': 'Enlace personal',
     'ref_note': 'Los bonos requieren Pro activo. Máximo: {max_refs}.',
     'buy_title': '💎 *BrainBoost Pro*', 'buy_tagline': 'Más potencia. Más resultados listos.',
-    'buy_features': '✓ {tokens} tokens\n✓ {days} días de acceso\n✓ Biblioteca completa\n✓ Modelos de IA prioritarios',
+    'buy_features': (
+        '✓ Volumen ilimitado: código, artículos y análisis sin textos cortados\n'
+        '✓ IA profesional: máxima lógica, sin alucinaciones, tareas de trabajo complejas\n'
+        '✓ Desbloqueo de todas las herramientas premium (Negocios, Desarrollo, Marketing)'
+    ),
+    'choose_plan': 'Elige tu plan:',
+    'plan_1m': '1 mes — {price} €',
+    'plan_3m': '🔥 3 meses — {price} € · Ahorra {pct}%',
+    'plan_6m': '💎 6 meses — {price} € · Ahorra {pct}%',
+    'plan_name_1': '1 mes',
+    'plan_name_3': '3 meses',
+    'plan_name_6': '6 meses',
+    'buy_social': '📈 Más de {n} profesionales ya trabajan en Pro',
+    'buy_anchor': '💶 Con el plan de 6 meses, el mes sale a {per_month} € en vez de {full} €',
+    'buy_instant': '⚡️ El acceso se activa justo después de confirmar el pago',
+    'locked_preview': '🔒 Dentro de la categoría «{category}»:',
+    'locked_more_tools': '…y {n} herramientas más',
+    'renewal_reminder': (
+        '⏳ *Tu Pro caduca en {days} día(s).*\n\n'
+        'Renueva ahora para no perder la generación ilimitada '
+        'y la biblioteca de soluciones.'
+    ),
+    'renewal_today': (
+        '⏳ *Tu Pro caduca hoy.*\n\n'
+        'Renueva ahora para no perder la generación ilimitada '
+        'y la biblioteca de soluciones.'
+    ),
+    'back_plans': '‹ Otro plan',
+    'category_locked': 'Las herramientas de esta categoría solo están disponibles en la versión Pro.',
+    'limit_locked': 'Límite gratuito agotado. El sistema está bloqueado. Activa Pro para seguir trabajando.',
+    'home_workspace': 'Entorno de trabajo BrainBoost.',
+    'home_free_left': 'Operaciones gratis restantes: {left} de {total}.',
     'buy_choose': 'Elige un método de pago:', 'i_paid': 'Ya pagué',
     'payment_review': 'La verificación suele tardar unos minutos.',
     'maintenance': '🛠 BrainBoost se está actualizando. Volveremos pronto.',
@@ -623,10 +772,9 @@ TRANSLATIONS['es'] = {
     'ask_body': 'Describe el resultado que buscas. Cuanto más contexto, mayor precisión.',
     'ask_examples': (
         '*Ejemplos:*\n'
-        '• «Plan de contenidos semanal para una cafetería»\n'
-        '• «Escribe una función de ordenamiento en Python»\n'
-        '• «Explica la física cuántica de forma simple»\n'
-        '• «Análisis SWOT para una startup de reparto»'
+        '• «Escribe un parser de sitios web en Python»\n'
+        '• «Crea un embudo de ventas para un canal de Telegram»\n'
+        '• «Analiza este informe financiero y saca conclusiones»'
     ),
     'restart_prompt': 'Vuelve a elegir la solución en la biblioteca.',
     'var_topic': 'tema o contexto', 'var_task': 'tarea',

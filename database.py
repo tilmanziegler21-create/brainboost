@@ -104,9 +104,15 @@ def init_db():
         ('claude_client_version', '2.1.198', 'Версия Claude Code CLI'),
         ('claude_anthropic_version', '2023-06-01', 'Заголовок anthropic-version'),
         ('claude_oauth_token', '', 'OAuth/setup-token Claude Code (логин шага 2)'),
-        ('price_eur', '25', 'Цена в EUR'),
-        ('price_usd', '27', 'Цена в USD'),
-        ('price_uah', '1050', 'Цена в UAH'),
+        ('price_eur', '15', 'Цена в EUR (1 месяц)'),
+        ('price_usd', '16', 'Цена в USD (1 месяц)'),
+        ('price_uah', '630', 'Цена в UAH (1 месяц)'),
+        ('price_eur_3m', '33', 'Цена в EUR (3 месяца)'),
+        ('price_usd_3m', '36', 'Цена в USD (3 месяца)'),
+        ('price_uah_3m', '1390', 'Цена в UAH (3 месяца)'),
+        ('price_eur_6m', '60', 'Цена в EUR (6 месяцев)'),
+        ('price_usd_6m', '65', 'Цена в USD (6 месяцев)'),
+        ('price_uah_6m', '2520', 'Цена в UAH (6 месяцев)'),
         ('free_requests', '10', 'Бесплатных запросов'),
         ('free_request_cost', '100000', 'Списание за бесплатный запрос'),
         ('free_tokens_limit', '1000000', 'Бесплатных токенов на пользователя'),
@@ -195,6 +201,35 @@ def init_db():
         cursor.execute(
             'ALTER TABLE users ADD COLUMN language_selected INTEGER DEFAULT 0'
         )
+    payment_cols = {
+        r[1] for r in cursor.execute('PRAGMA table_info(payments)').fetchall()
+    }
+    if 'months' not in payment_cols:
+        cursor.execute(
+            'ALTER TABLE payments ADD COLUMN months INTEGER DEFAULT 1'
+        )
+
+    if 'renewal_notified' not in user_cols:
+        cursor.execute(
+            'ALTER TABLE users ADD COLUMN renewal_notified INTEGER DEFAULT 0'
+        )
+
+    # Миграция цен на линейку 15/33/60 € (только если стояли старые дефолты)
+    price_migrations = {
+        'price_eur': ('25', '15'),
+        'price_usd': ('27', '16'),
+        'price_uah': ('1050', '630'),
+        'price_eur_3m': ('65', '33'),
+        'price_usd_3m': ('70', '36'),
+        'price_uah_3m': ('2740', '1390'),
+    }
+    for key, (old, new) in price_migrations.items():
+        cursor.execute('''
+            UPDATE admin_settings
+            SET setting_value = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE setting_key = ? AND setting_value = ?
+        ''', (new, key, old))
+
     if 'free_requests_used' not in user_cols:
         cursor.execute(
             'ALTER TABLE users ADD COLUMN free_requests_used INTEGER DEFAULT 0'
@@ -417,7 +452,8 @@ def activate_subscription(user_id):
         SET subscription_status = 'active',
             tokens_limit = ?,
             tokens_used = 0,
-            subscription_end_date = ?
+            subscription_end_date = ?,
+            renewal_notified = 0
         WHERE user_id = ?
     ''', (tokens_limit, end_date, user_id))
     conn.commit()
@@ -464,7 +500,7 @@ def block_user(user_id):
 
 # --- Работа с платежами ---
 
-def create_payment(user_id, amount, currency, method):
+def create_payment(user_id, amount, currency, method, months=1):
     conn = get_db_connection()
     order_id = (
         f"BB-{datetime.now().strftime('%Y%m%d')}-"
@@ -472,9 +508,9 @@ def create_payment(user_id, amount, currency, method):
     )
 
     conn.execute('''
-        INSERT INTO payments (user_id, amount, currency, payment_method, order_id, status)
-        VALUES (?, ?, ?, ?, ?, 'pending')
-    ''', (user_id, amount, currency, method, order_id))
+        INSERT INTO payments (user_id, amount, currency, payment_method, order_id, status, months)
+        VALUES (?, ?, ?, ?, ?, 'pending', ?)
+    ''', (user_id, amount, currency, method, order_id, int(months)))
 
     conn.commit()
     conn.close()
@@ -517,7 +553,7 @@ def confirm_payment(order_id, admin_id, comment=None):
     cursor = conn.cursor()
 
     payment = cursor.execute(
-        'SELECT user_id FROM payments WHERE order_id = ?',
+        'SELECT user_id, months FROM payments WHERE order_id = ?',
         (order_id,),
     ).fetchone()
     if not payment:
@@ -532,21 +568,23 @@ def confirm_payment(order_id, admin_id, comment=None):
         WHERE order_id = ?
     ''', (comment or 'Confirmed', order_id))
 
+    months = int(payment['months'] or 1)
     days_row = cursor.execute(
         "SELECT setting_value FROM admin_settings WHERE setting_key = 'subscription_days'"
     ).fetchone()
     tokens_row = cursor.execute(
         "SELECT setting_value FROM admin_settings WHERE setting_key = 'subscription_tokens'"
     ).fetchone()
-    days = int(days_row[0] if days_row else '30')
+    days = int(days_row[0] if days_row else '30') * months
     end_date = (datetime.now() + timedelta(days=days)).strftime('%Y-%m-%d')
-    tokens_limit = int(tokens_row[0] if tokens_row else '50000000')
+    tokens_limit = int(tokens_row[0] if tokens_row else '50000000') * months
     cursor.execute('''
         UPDATE users
         SET subscription_status = 'active',
             tokens_limit = ?,
             tokens_used = 0,
-            subscription_end_date = ?
+            subscription_end_date = ?,
+            renewal_notified = 0
         WHERE user_id = ?
     ''', (tokens_limit, end_date, payment['user_id']))
     cursor.execute('''
@@ -561,6 +599,42 @@ def confirm_payment(order_id, admin_id, comment=None):
     conn.commit()
     conn.close()
     return payment['user_id']
+
+
+def get_confirmed_buyers_count():
+    """Число уникальных пользователей с подтверждённой оплатой (для соцдоказательства)"""
+    conn = get_db_connection()
+    count = conn.execute(
+        "SELECT COUNT(DISTINCT user_id) FROM payments WHERE status = 'confirmed'"
+    ).fetchone()[0]
+    conn.close()
+    return count
+
+
+def get_expiring_subscriptions(days=3):
+    """Активные подписки, истекающие в ближайшие N дней, без отправленного напоминания"""
+    conn = get_db_connection()
+    deadline = (datetime.now() + timedelta(days=days)).strftime('%Y-%m-%d')
+    today = datetime.now().strftime('%Y-%m-%d')
+    rows = conn.execute('''
+        SELECT user_id, language, subscription_end_date FROM users
+        WHERE subscription_status = 'active'
+          AND COALESCE(renewal_notified, 0) = 0
+          AND subscription_end_date IS NOT NULL
+          AND subscription_end_date >= ?
+          AND subscription_end_date <= ?
+    ''', (today, deadline)).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def mark_renewal_notified(user_id):
+    conn = get_db_connection()
+    conn.execute(
+        'UPDATE users SET renewal_notified = 1 WHERE user_id = ?', (user_id,)
+    )
+    conn.commit()
+    conn.close()
 
 
 def reject_payment(order_id, admin_id, reason=None):

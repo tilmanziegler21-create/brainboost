@@ -1,7 +1,6 @@
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-from database import get_setting
 from utils import is_true
-from prompts_data import CATEGORY_NAMES
+from prompts_data import CATEGORY_NAMES, PREMIUM_CATEGORIES
 from i18n import (
     t, category_name, prompt_title,
 )
@@ -27,8 +26,8 @@ def language_keyboard(back=False):
 def main_menu_keyboard(is_admin=False, language='en'):
     rows = [
         [InlineKeyboardButton(t(language, 'menu_ask'), callback_data="ask_ai")],
-        [InlineKeyboardButton(t(language, 'menu_prompts'), callback_data="prompts_menu")],
         [InlineKeyboardButton(t(language, 'menu_buy'), callback_data="buy")],
+        [InlineKeyboardButton(t(language, 'menu_prompts'), callback_data="prompts_menu")],
         [InlineKeyboardButton(t(language, 'menu_more'), callback_data="more_menu")],
     ]
     if is_admin:
@@ -52,27 +51,6 @@ def back_to_more_keyboard(language='en'):
     ])
 
 
-def buy_keyboard(language='en'):
-    buttons = []
-    if is_true(get_setting('card_uah_enabled', 'true')):
-        price = get_setting('price_uah', '1050')
-        buttons.append([
-            InlineKeyboardButton(t(language, 'buy_card_uah', price=price), callback_data="pay_card_uah")
-        ])
-    if is_true(get_setting('card_eur_enabled', 'true')):
-        price = get_setting('price_eur', '25')
-        buttons.append([
-            InlineKeyboardButton(t(language, 'buy_card_eur', price=price), callback_data="pay_card_eur")
-        ])
-    if is_true(get_setting('usdt_enabled', 'true')):
-        price = get_setting('price_usd', '27')
-        buttons.append([
-            InlineKeyboardButton(t(language, 'buy_usdt', price=price), callback_data="pay_usdt")
-        ])
-    buttons.append([InlineKeyboardButton(t(language, 'back'), callback_data="main_menu")])
-    return InlineKeyboardMarkup(buttons)
-
-
 def i_paid_keyboard(order_id, language='en'):
     return InlineKeyboardMarkup([
         [InlineKeyboardButton(f"✓ {t(language, 'i_paid')}", callback_data=f"i_paid_{order_id}")],
@@ -80,7 +58,7 @@ def i_paid_keyboard(order_id, language='en'):
     ])
 
 
-def prompts_categories_keyboard(language='en', counts=None):
+def prompts_categories_keyboard(language='en', counts=None, is_pro=True):
     counts = counts or {}
     buttons = []
     row = []
@@ -89,6 +67,8 @@ def prompts_categories_keyboard(language='en', counts=None):
         cnt = counts.get(key)
         if cnt:
             label = f"{label} · {cnt}"
+        if key in PREMIUM_CATEGORIES and not is_pro:
+            label = f"{label} 🔒"
         row.append(InlineKeyboardButton(label, callback_data=f"user_cat_{key}"))
         if len(row) == 2:
             buttons.append(row)

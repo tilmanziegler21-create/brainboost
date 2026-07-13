@@ -1,5 +1,7 @@
+import asyncio
 import logging
 import os
+from datetime import datetime
 
 from telegram import Update
 from telegram.ext import (
@@ -37,10 +39,57 @@ from admin_panel import (
     admin_tokens_low, admin_tokens_find,
     admin_claude_usage, admin_claude_test, admin_claude_model,
     bind_payments_group, unbind_payments_group,
+    broadcast_send_callback, broadcast_cancel_callback,
 )
-from payment import payment_callback, i_paid_callback
+from payment import payment_callback, i_paid_callback, plan_callback
 
 logger = setup_logging()
+
+RENEWAL_CHECK_INTERVAL = 12 * 3600  # каждые 12 часов
+
+
+async def _renewal_watcher(app):
+    """Фоновый цикл: напоминание о продлении за 3 дня до конца Pro"""
+    from database import get_expiring_subscriptions, mark_renewal_notified
+    from payment import buy_plans_keyboard
+    from i18n import t
+
+    while True:
+        try:
+            for user in get_expiring_subscriptions(3):
+                language = user.get('language') or 'en'
+                try:
+                    end = datetime.strptime(
+                        user['subscription_end_date'][:10], '%Y-%m-%d'
+                    )
+                    days_left = max(0, (end - datetime.now()).days)
+                except (ValueError, TypeError):
+                    days_left = 3
+                if days_left <= 0:
+                    text = t(language, 'renewal_today')
+                else:
+                    text = t(language, 'renewal_reminder', days=days_left)
+                try:
+                    await app.bot.send_message(
+                        chat_id=user['user_id'],
+                        text=text,
+                        parse_mode='Markdown',
+                        reply_markup=buy_plans_keyboard(language),
+                    )
+                    mark_renewal_notified(user['user_id'])
+                    logger.info('Renewal reminder sent to %s', user['user_id'])
+                except Exception as exc:
+                    logger.warning(
+                        'Renewal reminder failed user=%s: %s',
+                        user['user_id'], exc,
+                    )
+        except Exception:
+            logger.exception('Renewal watcher cycle failed')
+        await asyncio.sleep(RENEWAL_CHECK_INTERVAL)
+
+
+async def _post_init(app):
+    app.create_task(_renewal_watcher(app))
 
 
 def main():
@@ -55,7 +104,7 @@ def main():
     if seeded:
         logger.info(f"Загружено/обновлено промтов магазина: {seeded}")
 
-    app = Application.builder().token(BOT_TOKEN).build()
+    app = Application.builder().token(BOT_TOKEN).post_init(_post_init).build()
 
     # Пользовательские команды
     app.add_handler(CommandHandler("start", start))
@@ -73,6 +122,8 @@ def main():
     # Админ-команды настроек
     admin_set_commands = [
         "set_price_eur", "set_price_usd", "set_price_uah",
+        "set_price_eur_3m", "set_price_usd_3m", "set_price_uah_3m",
+        "set_price_eur_6m", "set_price_usd_6m", "set_price_uah_6m",
         "set_free_requests", "set_free_request_cost", "set_free_tokens_limit",
         "set_claude_api_key", "set_claude_model",
         "set_claude_api_url", "set_claude_client_version", "set_claude_anthropic_version",
@@ -116,6 +167,8 @@ def main():
     app.add_handler(CallbackQueryHandler(admin_claude_model, pattern="^admin_claude_model_"))
     app.add_handler(CallbackQueryHandler(admin_prompts, pattern="^admin_prompts$"))
     app.add_handler(CallbackQueryHandler(admin_broadcast, pattern="^admin_broadcast$"))
+    app.add_handler(CallbackQueryHandler(broadcast_send_callback, pattern="^broadcast_send$"))
+    app.add_handler(CallbackQueryHandler(broadcast_cancel_callback, pattern="^broadcast_cancel$"))
     app.add_handler(CallbackQueryHandler(admin_logs, pattern="^admin_logs$"))
     app.add_handler(CallbackQueryHandler(admin_back, pattern="^admin_back$"))
     app.add_handler(CallbackQueryHandler(admin_refresh, pattern="^admin_refresh$"))
@@ -130,6 +183,7 @@ def main():
     app.add_handler(CallbackQueryHandler(toggle_setting_callback, pattern="^toggle_"))
 
     # Оплаты
+    app.add_handler(CallbackQueryHandler(plan_callback, pattern="^plan_(1|3|6)$"))
     app.add_handler(CallbackQueryHandler(payment_callback, pattern="^pay_"))
     app.add_handler(CallbackQueryHandler(i_paid_callback, pattern="^i_paid_"))
     app.add_handler(CallbackQueryHandler(confirm_payment_callback, pattern="^confirm_"))

@@ -15,6 +15,9 @@ CATEGORY_ALIASES = {
     'fitness': 'health',
 }
 
+# Премиальные категории: доступны только с активной подпиской Pro
+PREMIUM_CATEGORIES = {'business', 'code', 'marketing'}
+
 VAR_HINTS = {
     'topic': 'тема / о чём',
     'task': 'задача / что сделать',

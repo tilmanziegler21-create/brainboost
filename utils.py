@@ -1,5 +1,6 @@
 import logging
 import os
+import re
 from datetime import datetime
 
 LOGS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'logs')
@@ -84,6 +85,39 @@ def escape_markdown(text):
     for ch in ('_', '*', '[', ']', '(', ')', '~', '`', '>', '#', '+', '-', '=', '|', '{', '}', '.', '!'):
         text = text.replace(ch, f'\\{ch}')
     return text
+
+
+def clean_ai_text(text):
+    """
+    Убрать Markdown-артефакты из ответа модели: **, ##, ```, маркеры списков.
+    Ответы отправляются без parse_mode, поэтому сырые символы разметки
+    выглядят как мусор.
+    """
+    if not text:
+        return text
+    lines = []
+    in_code = False
+    for line in text.split('\n'):
+        stripped = line.strip()
+        if stripped.startswith('```'):
+            in_code = not in_code
+            continue
+        if in_code:
+            # Содержимое код-блоков не трогаем
+            lines.append(line)
+            continue
+        # Заголовки ## Текст → Текст
+        line = re.sub(r'^\s{0,3}#{1,6}\s+', '', line)
+        # Маркеры списков "- " и "* " → "• "
+        line = re.sub(r'^(\s*)[-*]\s+', r'\1• ', line)
+        # Горизонтальные разделители --- / *** / ___
+        if re.fullmatch(r'\s*([-_*] ?){3,}\s*', line):
+            continue
+        line = line.replace('**', '')
+        line = re.sub(r'(?<!\w)__(.+?)__(?!\w)', r'\1', line)
+        line = line.replace('`', '')
+        lines.append(line)
+    return '\n'.join(lines)
 
 
 def truncate(text, length=200):

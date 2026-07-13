@@ -4,7 +4,6 @@ from datetime import datetime
 
 from telegram import Update
 from telegram.constants import ChatAction
-from telegram.helpers import escape_markdown
 from telegram.ext import ContextTypes
 
 from config import ADMIN_IDS
@@ -21,10 +20,13 @@ from keyboards import (
     back_to_menu_keyboard, back_to_more_keyboard, more_menu_keyboard,
     cancel_keyboard, language_keyboard, result_keyboard,
 )
-from payment import buy, handle_screenshot, handle_txid_text
+from payment import (
+    buy, handle_screenshot, handle_txid_text,
+    build_buy_text, buy_plans_keyboard,
+)
 from admin_panel import admin_text_handler, is_admin
-from prompts_data import CATEGORY_ALIASES
-from utils import format_tokens, format_token_bar, is_true
+from prompts_data import CATEGORY_ALIASES, PREMIUM_CATEGORIES
+from utils import format_tokens, format_token_bar, is_true, clean_ai_text
 from i18n import (
     SUPPORTED_LANGUAGES, t, detect_language, category_name, prompt_title,
     variable_hint, response_language_instruction, thinking_phases,
@@ -34,6 +36,13 @@ from i18n import (
 SYSTEM_PROMPT = (
     "Ты — BrainBoost, умный AI-помощник. Отвечай полезно, конкретно и по делу. "
     "Пиши на языке пользователя. Если запрос неясен — уточни."
+)
+
+# Ответы отправляются в Telegram обычным текстом — Markdown-символы выглядят как мусор
+FORMAT_INSTRUCTION = (
+    "Format the reply as plain text for a Telegram chat: no Markdown symbols "
+    "(no **, ##, backticks, no *bullets*). Use short paragraphs, emoji as "
+    "section markers where helpful, and '•' for list items."
 )
 
 
@@ -62,39 +71,26 @@ def build_home_text(user):
     remaining = get_remaining_tokens(user['user_id'])
     limit = get_tokens_limit(user['user_id'])
     is_pro = user['subscription_status'] == 'active'
-    access = t(language, 'welcome_pro' if is_pro else 'welcome_trial')
     if is_pro:
+        access = t(language, 'welcome_pro')
         days_left = _pro_days_left(user)
         if days_left is not None:
             access = f"{access} · {t(language, 'pro_days_left', days=days_left)}"
-    welcome_body = t(language, 'welcome_body')
-    configured_welcome = get_setting('welcome_message', '')
-    old_defaults = {
-        'Привет! Я BrainBoost — твой AI-помощник',
-        'Привет! Я BrainBoost',
-    }
-    if language == 'ru' and configured_welcome and configured_welcome not in old_defaults:
-        welcome_body = escape_markdown(configured_welcome, version=1)
-    usage_lines = (
-        f"{t(language, 'tokens_left')}: "
-        f"`{format_tokens(remaining)} / {format_tokens(limit)}`"
-    )
-    if not is_pro:
+        status_lines = (
+            f"◇ *{access}*\n"
+            f"{t(language, 'tokens_left')}: "
+            f"`{format_tokens(remaining)} / {format_tokens(limit)}`"
+        )
+    else:
         request_limit = int(get_setting('free_requests', '10'))
         requests_left = get_free_requests_remaining(user['user_id'])
-        usage_lines = f"{t(language, 'requests_left')}: `{requests_left} / {request_limit}`"
-    greeting = ''
-    first_name = (user.get('first_name') or '').strip()
-    if first_name:
-        safe_name = escape_markdown(first_name, version=1)
-        greeting = f"{t(language, 'greeting_back', name=safe_name)}\n\n"
+        status_lines = (
+            f"*{t(language, 'home_free_left', left=requests_left, total=request_limit)}*"
+        )
     return (
-        f"{t(language, 'welcome_title')}\n"
-        f"_{t(language, 'welcome_subtitle')}_\n\n"
-        f"{greeting}"
-        f"{welcome_body}\n\n"
-        f"◇ *{access}*\n"
-        f"{usage_lines}\n\n"
+        f"{t(language, 'welcome_title')}\n\n"
+        f"{t(language, 'home_workspace')}\n"
+        f"{status_lines}\n\n"
         f"*{t(language, 'choose_action')}*"
     )
 
@@ -130,27 +126,41 @@ async def check_maintenance(update: Update):
 
 
 async def check_access(user):
-    """Проверка доступа: не заблокирован и есть токены"""
+    """Проверка доступа. Возвращает (ok, message, reason)."""
     check_and_expire_subscriptions()
     fresh_user = get_user(user['user_id'])
     if fresh_user:
         user.clear()
         user.update(fresh_user)
     if user['subscription_status'] == 'blocked':
-        return False, t(user_language(user), 'blocked')
+        return False, t(user_language(user), 'blocked'), 'blocked'
     if user['subscription_status'] == 'expired':
-        return False, t(user_language(user), 'subscription_expired')
+        return False, t(user_language(user), 'subscription_expired'), 'expired'
     remaining = get_remaining_tokens(user['user_id'])
     if user['subscription_status'] == 'trial':
         free_requests = get_free_requests_remaining(user['user_id'])
         request_cost = int(get_setting('free_request_cost', '100000'))
         if free_requests <= 0 or remaining < request_cost:
-            return False, t(user_language(user), 'trial_exhausted')
+            return False, t(user_language(user), 'trial_exhausted'), 'trial_exhausted'
     if remaining <= 0:
         if user['subscription_status'] == 'active':
-            return False, t(user_language(user), 'pro_exhausted')
-        return False, t(user_language(user), 'trial_exhausted')
-    return True, None
+            return False, t(user_language(user), 'pro_exhausted'), 'pro_exhausted'
+        return False, t(user_language(user), 'trial_exhausted'), 'trial_exhausted'
+    return True, None, None
+
+
+async def send_limit_locked(update, language):
+    """Экран блокировки: лимит исчерпан → тарифы Pro"""
+    text = f"🔒 {t(language, 'limit_locked')}\n\n{build_buy_text(language)}"
+    keyboard = buy_plans_keyboard(language)
+    if update.callback_query:
+        await update.callback_query.edit_message_text(
+            text, reply_markup=keyboard, parse_mode='Markdown'
+        )
+    elif update.message:
+        await update.message.reply_text(
+            text, reply_markup=keyboard, parse_mode='Markdown'
+        )
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -395,9 +405,12 @@ async def ask_ai_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     await query.answer(t(language, 'toast_ask'))
 
-    ok, msg = await check_access(user)
+    ok, msg, reason = await check_access(user)
     if not ok:
-        await query.edit_message_text(msg, reply_markup=back_to_menu_keyboard(language))
+        if reason == 'trial_exhausted':
+            await send_limit_locked(update, language)
+        else:
+            await query.edit_message_text(msg, reply_markup=back_to_menu_keyboard(language))
         return
 
     context.user_data['awaiting_ai'] = True
@@ -435,30 +448,73 @@ async def prompts_menu_callback(update: Update, context: ContextTypes.DEFAULT_TY
 
     await query.edit_message_text(
         text,
-        reply_markup=prompts_categories_keyboard(language, get_category_counts()),
+        reply_markup=prompts_categories_keyboard(
+            language, get_category_counts(), is_pro=_has_pro_access(user)
+        ),
+        parse_mode='Markdown',
+    )
+
+
+def _has_pro_access(user):
+    """Pro-доступ: активная подписка или админ"""
+    return (
+        user['subscription_status'] == 'active'
+        or is_admin(user['user_id'])
+    )
+
+
+async def send_category_locked(query, language, category=None):
+    """Экран продаж при клике на закрытую категорию: тизер инструментов + тарифы"""
+    teaser = ''
+    if category:
+        prompts = get_prompts_by_category(category)
+        if prompts:
+            name = category_name(category, language)
+            lines = [
+                f"🔒 {p.get('icon') or '📌'} "
+                f"{prompt_title(p.get('title') or 'Prompt', language)}"
+                for p in prompts[:4]
+            ]
+            rest = len(prompts) - 4
+            if rest > 0:
+                lines.append(t(language, 'locked_more_tools', n=rest))
+            teaser = (
+                f"*{t(language, 'locked_preview', category=name)}*\n"
+                + '\n'.join(lines) + '\n\n'
+            )
+    await query.edit_message_text(
+        f"{teaser}🔒 {t(language, 'category_locked')}\n\n{build_buy_text(language)}",
+        reply_markup=buy_plans_keyboard(language),
         parse_mode='Markdown',
     )
 
 
 async def user_category_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer()
     user = await ensure_user(update)
     language = user_language(user)
 
     category = query.data.replace('user_cat_', '')
     if category == 'popular':
+        await query.answer()
         prompts = get_popular_prompts(12)
         name = t(language, 'popular')
     else:
         category = CATEGORY_ALIASES.get(category, category)
+        if category in PREMIUM_CATEGORIES and not _has_pro_access(user):
+            await query.answer('🔒 Pro')
+            await send_category_locked(query, language, category)
+            return
+        await query.answer()
         prompts = get_prompts_by_category(category)
         name = category_name(category, language)
 
     if not prompts:
         await query.edit_message_text(
             t(language, 'no_prompts'),
-            reply_markup=prompts_categories_keyboard(language),
+            reply_markup=prompts_categories_keyboard(
+                language, get_category_counts(), is_pro=_has_pro_access(user)
+            ),
         )
         return
 
@@ -477,9 +533,12 @@ async def prompt_use_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     user = await ensure_user(update)
     language = user_language(user)
-    ok, msg = await check_access(user)
+    ok, msg, reason = await check_access(user)
     if not ok:
-        await query.edit_message_text(msg, reply_markup=back_to_menu_keyboard(language))
+        if reason == 'trial_exhausted':
+            await send_limit_locked(update, language)
+        else:
+            await query.edit_message_text(msg, reply_markup=back_to_menu_keyboard(language))
         return
 
     prompt_id = int(query.data.replace('use_prompt_', ''))
@@ -489,6 +548,11 @@ async def prompt_use_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
             t(language, 'prompt_not_found'),
             reply_markup=back_to_menu_keyboard(language),
         )
+        return
+
+    # Сценарии премиальных категорий (в т.ч. из «Популярного») — только для Pro
+    if prompt.get('category') in PREMIUM_CATEGORIES and not _has_pro_access(user):
+        await send_category_locked(query, language, prompt.get('category'))
         return
 
     variables = parse_prompt_variables(prompt)
@@ -571,8 +635,18 @@ async def process_ai_request(
     """Общая логика запроса к Claude с учётом лимитов"""
     user = await ensure_user(update)
     language = user_language(user)
-    ok, msg = await check_access(user)
+    ok, msg, reason = await check_access(user)
     if not ok:
+        # Исчерпанный лимит: система заблокирована, показываем тарифы
+        if reason == 'trial_exhausted':
+            target = update.message or (update.callback_query.message if update.callback_query else None)
+            if target:
+                await target.reply_text(
+                    f"🔒 {t(language, 'limit_locked')}\n\n{build_buy_text(language)}",
+                    reply_markup=buy_plans_keyboard(language),
+                    parse_mode='Markdown',
+                )
+            return
         target = update.message or (update.callback_query.message if update.callback_query else None)
         if target:
             await target.reply_text(msg, reply_markup=back_to_menu_keyboard(language))
@@ -602,7 +676,8 @@ async def process_ai_request(
 
     localized_system = (
         f"{system_prompt or SYSTEM_PROMPT}\n\n"
-        f"{response_language_instruction(language)}"
+        f"{response_language_instruction(language)}\n"
+        f"{FORMAT_INSTRUCTION}"
     )
     started_at = time.monotonic()
     try:
@@ -626,6 +701,7 @@ async def process_ai_request(
         provider_error = response_text
         response_text = t(language, 'ai_unavailable')
     else:
+        response_text = clean_ai_text(response_text)
         if user['subscription_status'] == 'active':
             tokens_to_charge = max(1, total_tokens)
             update_tokens_used(user['user_id'], tokens_to_charge)
@@ -646,12 +722,23 @@ async def process_ai_request(
         log_action(user['user_id'], 'request_error', provider_error[:500])
 
     remaining = get_remaining_tokens(user['user_id'])
+    is_pro_user = user['subscription_status'] == 'active'
 
     show_upgrade = False
     requests_left_after = None
-    if not call_failed and user['subscription_status'] != 'active':
+    if not call_failed and not is_pro_user:
         requests_left_after = get_free_requests_remaining(user['user_id'])
         show_upgrade = requests_left_after is not None and requests_left_after <= 2
+
+    # Для триала показываем остаток операций, для Pro — баланс токенов
+    if is_pro_user:
+        remaining_label = f"{t(language, 'result_footer')}: {format_tokens(remaining)}"
+    else:
+        left = requests_left_after
+        if left is None:
+            left = get_free_requests_remaining(user['user_id'])
+        total = int(get_setting('free_requests', '10'))
+        remaining_label = f"{t(language, 'requests_left')}: {left} / {total}"
 
     chunks = []
     text = response_text
@@ -674,15 +761,12 @@ async def process_ai_request(
             chunk = f"{header}\n{divider}\n{chunk}"
         if i == len(chunks) - 1:
             if call_failed:
-                footer = (
-                    f"\n\n◇ {t(language, 'result_footer')}: "
-                    f"{format_tokens(remaining)}"
-                )
+                footer = f"\n\n◇ {remaining_label}"
             else:
                 footer = (
                     f"\n{divider}\n"
                     f"◇ {t(language, 'done_in', seconds=elapsed_seconds)}"
-                    f" · {t(language, 'result_footer')}: {format_tokens(remaining)}"
+                    f" · {remaining_label}"
                 )
             if show_upgrade:
                 footer += (
@@ -830,9 +914,13 @@ async def _handle_prompt_variables_input(update, context):
     await execute_store_prompt(update, context, prompt, values)
 
 
+def _is_broadcast_input(context):
+    return context.user_data.get('admin_action') in ('broadcast', 'broadcast_confirm')
+
+
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Фото — скриншот оплаты или рассылка"""
-    if context.user_data.get('admin_action') == 'broadcast':
+    if _is_broadcast_input(context):
         from admin_panel import broadcast_message
         await broadcast_message(update, context)
         return
@@ -844,7 +932,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if context.user_data.get('admin_action') == 'broadcast':
+    if _is_broadcast_input(context):
         from admin_panel import broadcast_message
         await broadcast_message(update, context)
         return
@@ -853,6 +941,10 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if _is_broadcast_input(context):
+        from admin_panel import broadcast_message
+        await broadcast_message(update, context)
+        return
     user = await ensure_user(update)
     await update.message.reply_text(t(user_language(user), 'voice_unsupported'))
 

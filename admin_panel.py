@@ -330,13 +330,22 @@ async def admin_settings_prices(update: Update, context: ContextTypes.DEFAULT_TY
 
     text = (
         "💰 *Цены*\n\n"
-        f"EUR: `{get_setting('price_eur')}`\n"
-        f"USD (USDT): `{get_setting('price_usd')}`\n"
-        f"UAH: `{get_setting('price_uah')}`\n\n"
+        "*1 месяц:*\n"
+        f"EUR: `{get_setting('price_eur')}` · "
+        f"USD: `{get_setting('price_usd')}` · "
+        f"UAH: `{get_setting('price_uah')}`\n"
+        "*3 месяца:*\n"
+        f"EUR: `{get_setting('price_eur_3m')}` · "
+        f"USD: `{get_setting('price_usd_3m')}` · "
+        f"UAH: `{get_setting('price_uah_3m')}`\n"
+        "*6 месяцев:*\n"
+        f"EUR: `{get_setting('price_eur_6m')}` · "
+        f"USD: `{get_setting('price_usd_6m')}` · "
+        f"UAH: `{get_setting('price_uah_6m')}`\n\n"
         "*Изменить:*\n"
-        "`/set_price_eur 30`\n"
-        "`/set_price_usd 32`\n"
-        "`/set_price_uah 1200`"
+        "`/set_price_eur 15` `/set_price_usd 16` `/set_price_uah 630`\n"
+        "`/set_price_eur_3m 33` `/set_price_usd_3m 36` `/set_price_uah_3m 1390`\n"
+        "`/set_price_eur_6m 60` `/set_price_usd_6m 65` `/set_price_uah_6m 2520`"
     )
     await query.edit_message_text(
         text,
@@ -590,8 +599,12 @@ async def confirm_payment_callback(update: Update, context: ContextTypes.DEFAULT
     user_id = confirm_payment(order_id, query.from_user.id)
 
     if user_id:
-        days = get_setting('subscription_days', '30')
-        tokens = format_tokens(int(get_setting('subscription_tokens', '50000000')))
+        payment = get_payment(order_id)
+        months = int((payment or {}).get('months') or 1)
+        days = str(int(get_setting('subscription_days', '30')) * months)
+        tokens = format_tokens(
+            int(get_setting('subscription_tokens', '50000000')) * months
+        )
         try:
             if query.message.photo:
                 await query.edit_message_caption(caption=f"✅ Оплата #{order_id} подтверждена!")
@@ -959,6 +972,12 @@ async def admin_price_command(update: Update, context: ContextTypes.DEFAULT_TYPE
         '/set_price_eur': 'price_eur',
         '/set_price_usd': 'price_usd',
         '/set_price_uah': 'price_uah',
+        '/set_price_eur_3m': 'price_eur_3m',
+        '/set_price_usd_3m': 'price_usd_3m',
+        '/set_price_uah_3m': 'price_uah_3m',
+        '/set_price_eur_6m': 'price_eur_6m',
+        '/set_price_usd_6m': 'price_usd_6m',
+        '/set_price_uah_6m': 'price_uah_6m',
         '/set_free_requests': 'free_requests',
         '/set_free_request_cost': 'free_request_cost',
         '/set_free_tokens_limit': 'free_tokens_limit',
@@ -1006,66 +1025,133 @@ async def admin_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.edit_message_text(
         "📢 *Рассылка*\n\n"
         "Отправь сообщение для рассылки всем пользователям.\n"
-        "Это может быть текст, фото или видео.\n\n"
+        "Подойдёт любой тип: текст, фото, видео, документ, голосовое.\n"
+        "Форматирование (жирный, ссылки и т.д.) сохранится как есть.\n\n"
+        "Перед отправкой я покажу число получателей и попрошу подтвердить.\n"
         "Для отмены отправь /cancel_broadcast",
         parse_mode='Markdown',
     )
     context.user_data['admin_action'] = 'broadcast'
 
 
+def _clear_broadcast_state(context):
+    context.user_data.pop('admin_action', None)
+    context.user_data.pop('broadcast_from_chat', None)
+    context.user_data.pop('broadcast_message_id', None)
+    context.user_data.pop('broadcast_preview', None)
+
+
 async def cancel_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not is_admin(update.effective_user.id):
         return
-    context.user_data.pop('admin_action', None)
+    _clear_broadcast_state(context)
     await update.message.reply_text("❌ Рассылка отменена")
 
 
 async def broadcast_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Отправить сообщение всем пользователям"""
+    """Принять сообщение для рассылки и запросить подтверждение"""
     user_id = update.effective_user.id
     if not is_admin(user_id):
         return False
 
-    if context.user_data.get('admin_action') != 'broadcast':
+    if context.user_data.get('admin_action') not in ('broadcast', 'broadcast_confirm'):
         return False
 
     message = update.message
-    users = get_all_users()
+    total = sum(1 for u in get_all_users() if u['user_id'] != user_id)
+
+    context.user_data['admin_action'] = 'broadcast_confirm'
+    context.user_data['broadcast_from_chat'] = message.chat_id
+    context.user_data['broadcast_message_id'] = message.message_id
+    context.user_data['broadcast_preview'] = (
+        message.text or message.caption or '📢 Медиа-сообщение'
+    )
+
+    await message.reply_text(
+        "📢 *Подтверждение рассылки*\n\n"
+        "Сообщение выше будет доставлено всем как есть, "
+        "с сохранением форматирования и вложений.\n\n"
+        f"👥 Получателей: *{total}*",
+        parse_mode='Markdown',
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("✅ Отправить", callback_data="broadcast_send")],
+            [InlineKeyboardButton("❌ Отмена", callback_data="broadcast_cancel")],
+        ]),
+    )
+    return True
+
+
+async def broadcast_send_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Подтверждение: запуск рассылки в фоне через copy_message"""
+    query = update.callback_query
+    if not is_admin(query.from_user.id):
+        await query.answer()
+        return
+
+    from_chat = context.user_data.get('broadcast_from_chat')
+    message_id = context.user_data.get('broadcast_message_id')
+    preview = context.user_data.get('broadcast_preview') or '📢 Рассылка'
+    _clear_broadcast_state(context)
+
+    if not from_chat or not message_id:
+        await query.answer()
+        await query.edit_message_text(
+            "❌ Сообщение рассылки не найдено. Начни заново: Админ → 📢 Рассылка"
+        )
+        return
+
+    admin_id = query.from_user.id
+    users = [u for u in get_all_users() if u['user_id'] != admin_id]
     total = len(users)
 
-    broadcast_id = create_broadcast(message.text if message.text else '📢 Рассылка')
+    broadcast_id = create_broadcast(truncate(preview, 500))
     update_broadcast_status(broadcast_id, 'sending')
+    log_action(admin_id, 'broadcast_started', f'id={broadcast_id} total={total}')
 
-    await update.message.reply_text(f"📤 Начинаю рассылку для {total} пользователей...")
+    await query.answer("📤 Рассылка запущена")
+    await query.edit_message_text(f"📤 Рассылка запущена для {total} пользователей…")
 
-    sent = 0
-    for user in users:
+    async def _run_broadcast():
+        sent = 0
+        failed = 0
+        for user in users:
+            try:
+                await context.bot.copy_message(
+                    chat_id=user['user_id'],
+                    from_chat_id=from_chat,
+                    message_id=message_id,
+                )
+                sent += 1
+            except Exception as e:
+                failed += 1
+                log_action(user['user_id'], 'broadcast_failed', str(e))
+            await asyncio.sleep(0.05)
+
+        update_broadcast_status(broadcast_id, 'completed', sent)
         try:
-            if message.text:
-                await context.bot.send_message(chat_id=user['user_id'], text=message.text)
-            elif message.photo:
-                await context.bot.send_photo(
-                    chat_id=user['user_id'],
-                    photo=message.photo[-1].file_id,
-                    caption=message.caption or '',
-                )
-            elif message.video:
-                await context.bot.send_video(
-                    chat_id=user['user_id'],
-                    video=message.video.file_id,
-                    caption=message.caption or '',
-                )
-            sent += 1
-            if sent % 10 == 0:
-                await asyncio.sleep(1)
+            await context.bot.send_message(
+                chat_id=from_chat,
+                text=(
+                    "✅ *Рассылка завершена*\n\n"
+                    f"Доставлено: *{sent}* из {total}\n"
+                    f"Не доставлено: {failed} (блокировка бота и т.п.)"
+                ),
+                parse_mode='Markdown',
+            )
         except Exception as e:
-            log_action(user['user_id'], 'broadcast_failed', str(e))
+            log_action(admin_id, 'broadcast_report_failed', str(e))
 
-    update_broadcast_status(broadcast_id, 'completed', sent)
-    context.user_data.pop('admin_action', None)
+    context.application.create_task(_run_broadcast())
 
-    await update.message.reply_text(f"✅ Рассылка завершена!\nОтправлено: {sent}/{total}")
-    return True
+
+async def broadcast_cancel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    if not is_admin(query.from_user.id):
+        await query.answer()
+        return
+    _clear_broadcast_state(context)
+    await query.answer()
+    await query.edit_message_text("❌ Рассылка отменена")
 
 
 async def admin_logs(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1130,7 +1216,7 @@ async def admin_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if not action:
         return False
 
-    if action == 'broadcast':
+    if action in ('broadcast', 'broadcast_confirm'):
         return await broadcast_message(update, context)
 
     if action == 'add_prompt':
