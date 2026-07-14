@@ -13,6 +13,7 @@ from database import (
     get_prompts_by_category, get_prompt, check_and_expire_subscriptions,
     get_popular_prompts, parse_prompt_variables, increment_prompt_usage,
     set_user_language, get_free_requests_remaining, get_category_counts,
+    touch_user_activity,
 )
 from claude_api import call_claude
 from keyboards import (
@@ -108,6 +109,7 @@ async def ensure_user(update: Update):
             language=detect_language(tg_user.language_code),
         )
         user = get_user(tg_user.id)
+    touch_user_activity(tg_user.id)
     return user
 
 
@@ -172,11 +174,15 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = get_user(tg_user.id)
 
     referred_by = None
+    referer = None
     if context.args:
-        ref_code = context.args[0]
-        referrer = get_user_by_referral_code(ref_code)
+        arg = context.args[0].strip()[:64]
+        referrer = get_user_by_referral_code(arg)
         if referrer and referrer['user_id'] != tg_user.id:
             referred_by = referrer['user_id']
+        elif arg:
+            # Не реферальный код — считаем UTM-меткой рекламного канала
+            referer = arg
 
     if not user:
         create_user(
@@ -186,11 +192,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             referred_by=referred_by,
             last_name=tg_user.last_name,
             language=detect_language(tg_user.language_code),
+            referer=referer,
         )
         user = get_user(tg_user.id)
-        log_action(tg_user.id, 'start', f'ref={referred_by}')
+        log_action(tg_user.id, 'start', f'ref={referred_by} utm={referer}')
     else:
         log_action(tg_user.id, 'start', 'returning')
+    touch_user_activity(tg_user.id)
 
     if not user.get('language_selected'):
         language = detect_language(tg_user.language_code)

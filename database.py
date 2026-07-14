@@ -214,6 +214,11 @@ def init_db():
             'ALTER TABLE users ADD COLUMN renewal_notified INTEGER DEFAULT 0'
         )
 
+    if 'referer' not in user_cols:
+        cursor.execute('ALTER TABLE users ADD COLUMN referer TEXT')
+    if 'last_activity' not in user_cols:
+        cursor.execute('ALTER TABLE users ADD COLUMN last_activity TEXT')
+
     # Миграция цен на линейку 15/33/60 € (только если стояли старые дефолты)
     price_migrations = {
         'price_eur': ('25', '15'),
@@ -278,14 +283,19 @@ def get_setting(key, default=None):
     return result[0] if result else default
 
 
-def set_setting(key, value):
-    """Обновить настройку"""
+def set_setting(key, value, description=None):
+    """Обновить настройку (создаёт запись, если ключа ещё нет)"""
     conn = get_db_connection()
-    conn.execute('''
+    cursor = conn.execute('''
         UPDATE admin_settings
         SET setting_value = ?, updated_at = CURRENT_TIMESTAMP
         WHERE setting_key = ?
     ''', (str(value), key))
+    if cursor.rowcount == 0:
+        conn.execute('''
+            INSERT INTO admin_settings (setting_key, setting_value, description)
+            VALUES (?, ?, ?)
+        ''', (key, str(value), description or ''))
     conn.commit()
     conn.close()
 
@@ -321,7 +331,8 @@ def get_user(user_id):
 
 
 def create_user(
-    user_id, username, first_name, referred_by=None, last_name=None, language='en'
+    user_id, username, first_name, referred_by=None, last_name=None,
+    language='en', referer=None,
 ):
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -332,12 +343,12 @@ def create_user(
     cursor.execute('''
         INSERT INTO users (
             user_id, username, first_name, last_name, referral_code,
-            tokens_limit, referred_by, language
+            tokens_limit, referred_by, language, referer
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     ''', (
         user_id, username, first_name, last_name, ref_code,
-        free_limit, referred_by, language,
+        free_limit, referred_by, language, referer,
     ))
 
     cursor.execute('''
@@ -609,6 +620,191 @@ def get_confirmed_buyers_count():
     ).fetchone()[0]
     conn.close()
     return count
+
+
+def touch_user_activity(user_id):
+    """Отметить дневную активность (для retention). Пишет не чаще раза в день."""
+    today = datetime.now().strftime('%Y-%m-%d')
+    conn = get_db_connection()
+    row = conn.execute(
+        'SELECT last_activity FROM users WHERE user_id = ?', (user_id,)
+    ).fetchone()
+    if row is None:
+        conn.close()
+        return
+    if (row['last_activity'] or '')[:10] != today:
+        conn.execute(
+            'UPDATE users SET last_activity = ? WHERE user_id = ?',
+            (today, user_id),
+        )
+        conn.execute(
+            'INSERT INTO logs (user_id, action, details) VALUES (?, ?, ?)',
+            (user_id, 'active_day', today),
+        )
+        conn.commit()
+    conn.close()
+
+
+def eur_amount(amount, currency):
+    """Пересчёт суммы в EUR по соотношению текущих цен месячного тарифа."""
+    if currency == 'EUR' or not currency:
+        return float(amount)
+    key = {'UAH': 'price_uah', 'USD': 'price_usd'}.get(currency)
+    if not key:
+        return float(amount)
+    eur = float(get_setting('price_eur', '15') or 0)
+    cur = float(get_setting(key, '0') or 0)
+    if eur <= 0 or cur <= 0:
+        return float(amount)
+    return float(amount) * eur / cur
+
+
+def get_analytics_summary():
+    """Сводка ключевых метрик: LTV, CR, retention, токены."""
+    conn = get_db_connection()
+
+    total_users = conn.execute('SELECT COUNT(*) FROM users').fetchone()[0]
+    paying_users = conn.execute(
+        "SELECT COUNT(DISTINCT user_id) FROM payments WHERE status = 'confirmed'"
+    ).fetchone()[0]
+
+    revenue_rows = conn.execute(
+        "SELECT amount, currency FROM payments WHERE status = 'confirmed'"
+    ).fetchall()
+    revenue_by_currency = {}
+    revenue_eur = 0.0
+    for r in revenue_rows:
+        cur = r['currency'] or '?'
+        revenue_by_currency[cur] = revenue_by_currency.get(cur, 0) + (r['amount'] or 0)
+        revenue_eur += eur_amount(r['amount'] or 0, cur)
+
+    free_limit = int(get_setting('free_requests', '10'))
+    exhausted = conn.execute(
+        'SELECT COUNT(*) FROM users WHERE free_requests_used >= ?', (free_limit,)
+    ).fetchone()[0]
+    exhausted_paid = conn.execute('''
+        SELECT COUNT(DISTINCT u.user_id) FROM users u
+        JOIN payments p ON p.user_id = u.user_id AND p.status = 'confirmed'
+        WHERE u.free_requests_used >= ?
+    ''', (free_limit,)).fetchone()[0]
+
+    retention = {}
+    for day in (1, 7, 30):
+        cohort = conn.execute(
+            "SELECT COUNT(*) FROM users WHERE date(created_at) <= date('now', ?)",
+            (f'-{day} day',),
+        ).fetchone()[0]
+        returned = conn.execute('''
+            SELECT COUNT(DISTINCT u.user_id) FROM users u
+            JOIN logs l ON l.user_id = u.user_id
+            WHERE date(u.created_at) <= date('now', ?)
+              AND date(l.created_at) = date(u.created_at, ?)
+        ''', (f'-{day} day', f'+{day} day')).fetchone()[0]
+        retention[day] = {
+            'cohort': cohort,
+            'returned': returned,
+            'pct': round(returned / cohort * 100, 1) if cohort else 0,
+        }
+
+    # Токены за последние 30 дней — из логов запросов (charged=N)
+    request_logs = conn.execute('''
+        SELECT details FROM logs
+        WHERE action = 'request' AND date(created_at) >= date('now', '-30 day')
+    ''').fetchall()
+    generations = len(request_logs)
+    tokens_charged = 0
+    for r in request_logs:
+        for part in (r['details'] or '').split():
+            if part.startswith('charged='):
+                try:
+                    tokens_charged += int(part[8:])
+                except ValueError:
+                    pass
+                break
+    active_users_30d = conn.execute('''
+        SELECT COUNT(DISTINCT user_id) FROM logs
+        WHERE action = 'request' AND date(created_at) >= date('now', '-30 day')
+    ''').fetchone()[0]
+
+    conn.close()
+    return {
+        'total_users': total_users,
+        'paying_users': paying_users,
+        'revenue_by_currency': revenue_by_currency,
+        'revenue_eur': round(revenue_eur, 2),
+        'ltv_eur': round(revenue_eur / paying_users, 2) if paying_users else 0,
+        'cr_total_pct': round(paying_users / total_users * 100, 1) if total_users else 0,
+        'exhausted': exhausted,
+        'exhausted_paid': exhausted_paid,
+        'cr_exhausted_pct': (
+            round(exhausted_paid / exhausted * 100, 1) if exhausted else 0
+        ),
+        'retention': retention,
+        'generations_30d': generations,
+        'tokens_charged_30d': tokens_charged,
+        'avg_tokens_per_generation': (
+            round(tokens_charged / generations) if generations else 0
+        ),
+        'avg_tokens_per_user_30d': (
+            round(tokens_charged / active_users_30d) if active_users_30d else 0
+        ),
+    }
+
+
+def get_channels_report():
+    """Отчёт по источникам (UTM): переходы, активации, покупки, касса, CAC."""
+    conn = get_db_connection()
+    rows = conn.execute('''
+        SELECT COALESCE(NULLIF(u.referer, ''), 'organic') AS source,
+               COUNT(DISTINCT u.user_id) AS users,
+               SUM(CASE WHEN u.free_requests_used > 0
+                         OR u.subscription_status IN ('active', 'expired')
+                   THEN 1 ELSE 0 END) AS activated,
+               COUNT(DISTINCT p.user_id) AS paid
+        FROM users u
+        LEFT JOIN payments p ON p.user_id = u.user_id AND p.status = 'confirmed'
+        GROUP BY source
+        ORDER BY users DESC
+    ''').fetchall()
+    revenue_rows = conn.execute('''
+        SELECT COALESCE(NULLIF(u.referer, ''), 'organic') AS source,
+               p.amount, p.currency
+        FROM payments p
+        JOIN users u ON u.user_id = p.user_id
+        WHERE p.status = 'confirmed'
+    ''').fetchall()
+    spend_rows = conn.execute('''
+        SELECT setting_key, setting_value FROM admin_settings
+        WHERE setting_key LIKE 'ad_spend_%'
+    ''').fetchall()
+    conn.close()
+
+    revenue = {}
+    for r in revenue_rows:
+        revenue[r['source']] = (
+            revenue.get(r['source'], 0) + eur_amount(r['amount'] or 0, r['currency'])
+        )
+    spend = {}
+    for r in spend_rows:
+        try:
+            spend[r['setting_key'][len('ad_spend_'):]] = float(r['setting_value'])
+        except (ValueError, TypeError):
+            pass
+
+    report = []
+    for r in rows:
+        d = dict(r)
+        source = d['source']
+        d['activated'] = d['activated'] or 0
+        d['revenue_eur'] = round(revenue.get(source, 0), 2)
+        d['cr_pct'] = round(d['paid'] / d['users'] * 100, 1) if d['users'] else 0
+        d['spend_eur'] = spend.get(source)
+        d['cac_eur'] = (
+            round(spend[source] / d['paid'], 2)
+            if source in spend and d['paid'] else None
+        )
+        report.append(d)
+    return report
 
 
 def get_expiring_subscriptions(days=3):

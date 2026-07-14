@@ -40,6 +40,7 @@ from admin_panel import (
     admin_claude_usage, admin_claude_test, admin_claude_model,
     bind_payments_group, unbind_payments_group,
     broadcast_send_callback, broadcast_cancel_callback,
+    admin_analytics, admin_channels, set_ad_spend_command,
 )
 from payment import payment_callback, i_paid_callback, plan_callback
 
@@ -116,6 +117,7 @@ def main():
     app.add_handler(CommandHandler("admin", admin_panel))
     app.add_handler(CommandHandler("bind_payments_group", bind_payments_group))
     app.add_handler(CommandHandler("unbind_payments_group", unbind_payments_group))
+    app.add_handler(CommandHandler("set_ad_spend", set_ad_spend_command))
     app.add_handler(CommandHandler("cancel", cancel_admin_action))
     app.add_handler(CommandHandler("cancel_broadcast", cancel_broadcast))
 
@@ -154,6 +156,8 @@ def main():
 
     # Админ callback
     app.add_handler(CallbackQueryHandler(admin_stats, pattern="^admin_stats$"))
+    app.add_handler(CallbackQueryHandler(admin_analytics, pattern="^admin_analytics$"))
+    app.add_handler(CallbackQueryHandler(admin_channels, pattern="^admin_channels$"))
     app.add_handler(CallbackQueryHandler(admin_tokens, pattern="^admin_tokens$"))
     app.add_handler(CallbackQueryHandler(admin_tokens_me, pattern="^admin_tokens_me$"))
     app.add_handler(CallbackQueryHandler(admin_tokens_top, pattern="^admin_tokens_top$"))

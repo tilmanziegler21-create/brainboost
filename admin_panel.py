@@ -11,6 +11,7 @@ from database import (
     create_broadcast, update_broadcast_status, log_action,
     check_and_expire_subscriptions, get_user, get_user_token_info,
     get_tokens_usage_summary, get_top_token_users, get_low_token_users,
+    get_analytics_summary, get_channels_report,
 )
 from keyboards import (
     get_admin_main_keyboard, get_settings_keyboard, get_payment_methods_keyboard,
@@ -125,6 +126,115 @@ async def admin_stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     await query.edit_message_text(
         text, reply_markup=get_admin_main_keyboard(), parse_mode='Markdown'
+    )
+
+
+async def admin_analytics(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Сводка воронки: LTV, CR, retention, токены"""
+    query = update.callback_query
+    await query.answer()
+    if not is_admin(query.from_user.id):
+        return
+
+    a = get_analytics_summary()
+    revenue_lines = '\n'.join(
+        f"   ├─ {cur}: {amount:.2f}"
+        for cur, amount in sorted(a['revenue_by_currency'].items())
+    ) or '   ├─ —'
+    r = a['retention']
+    text = (
+        "📈 *Аналитика воронки*\n\n"
+        f"👥 Пользователей: {a['total_users']}\n"
+        f"💎 Платящих: {a['paying_users']} (CR общий: {a['cr_total_pct']}%)\n\n"
+        f"💰 *Касса (подтверждённые):*\n"
+        f"{revenue_lines}\n"
+        f"   └─ Итого ≈ *{a['revenue_eur']:.2f} €*\n"
+        f"📌 LTV: *{a['ltv_eur']:.2f} €* на платящего\n\n"
+        f"🔒 *Конверсия после исчерпания лимита:*\n"
+        f"   Исчерпали триал: {a['exhausted']}\n"
+        f"   Из них купили: {a['exhausted_paid']} (CR: {a['cr_exhausted_pct']}%)\n\n"
+        f"🔄 *Retention:*\n"
+        f"   ├─ День 1: {r[1]['pct']}% ({r[1]['returned']}/{r[1]['cohort']})\n"
+        f"   ├─ День 7: {r[7]['pct']}% ({r[7]['returned']}/{r[7]['cohort']})\n"
+        f"   └─ День 30: {r[30]['pct']}% ({r[30]['returned']}/{r[30]['cohort']})\n\n"
+        f"🎟 *Токены за 30 дней:*\n"
+        f"   ├─ Генераций: {a['generations_30d']}\n"
+        f"   ├─ Списано: {format_tokens(a['tokens_charged_30d'])}\n"
+        f"   ├─ На генерацию: {format_tokens(a['avg_tokens_per_generation'])}\n"
+        f"   └─ На пользователя: {format_tokens(a['avg_tokens_per_user_30d'])}"
+    )
+    await query.edit_message_text(
+        text,
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("📣 Отчёт по рекламе", callback_data="admin_channels")],
+            [InlineKeyboardButton("⬅️ Назад", callback_data="admin_back")],
+        ]),
+        parse_mode='Markdown',
+    )
+
+
+async def admin_channels(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Отчёт по рекламным каналам (UTM-меткам)"""
+    query = update.callback_query
+    await query.answer()
+    if not is_admin(query.from_user.id):
+        return
+
+    report = get_channels_report()
+    blocks = []
+    for row in report[:15]:
+        lines = [
+            f"*{row['source']}*",
+            f"   ├─ Переходов: {row['users']}",
+            f"   ├─ Активировали триал: {row['activated']}",
+            f"   ├─ Купили Pro: {row['paid']} (CR: {row['cr_pct']}%)",
+        ]
+        if row['spend_eur'] is not None:
+            cac = f"{row['cac_eur']:.2f} €" if row['cac_eur'] is not None else '—'
+            lines.append(
+                f"   ├─ Расход: {row['spend_eur']:.2f} € · CAC: {cac}"
+            )
+        lines.append(f"   └─ Касса: {row['revenue_eur']:.2f} €")
+        blocks.append('\n'.join(lines))
+
+    text = (
+        "📣 *Отчёт по рекламе*\n\n"
+        + ('\n\n'.join(blocks) if blocks else 'Пока нет данных.')
+        + "\n\n_Ссылка канала: `t.me/бот?start=метка`_\n"
+        "_Расход для CAC: `/set_ad_spend метка 100`_"
+    )
+    await query.edit_message_text(
+        text,
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("⬅️ Назад", callback_data="admin_analytics")],
+        ]),
+        parse_mode='Markdown',
+    )
+
+
+async def set_ad_spend_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/set_ad_spend <метка> <сумма_eur> — расход на канал для расчёта CAC"""
+    if not is_admin(update.effective_user.id):
+        return
+
+    args = context.args or []
+    if len(args) != 2:
+        await update.message.reply_text(
+            "❌ Формат: `/set_ad_spend метка 100`", parse_mode='Markdown'
+        )
+        return
+    source = args[0].strip()[:64]
+    try:
+        amount = float(args[1].replace(',', '.'))
+    except ValueError:
+        await update.message.reply_text("❌ Сумма должна быть числом")
+        return
+
+    set_setting(f'ad_spend_{source}', str(amount), f'Расход на канал {source}, EUR')
+    log_action(update.effective_user.id, 'admin_setting', f'ad_spend_{source}={amount}')
+    await update.message.reply_text(
+        f"✅ Расход по каналу `{source}`: *{amount:.2f} €*",
+        parse_mode='Markdown',
     )
 
 

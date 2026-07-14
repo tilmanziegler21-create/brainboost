@@ -129,6 +129,7 @@ def result_keyboard(language='en', category=None, show_upgrade=False):
 def get_admin_main_keyboard():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("📊 Статистика", callback_data="admin_stats")],
+        [InlineKeyboardButton("📈 Аналитика", callback_data="admin_analytics")],
         [InlineKeyboardButton("🎟 Токены", callback_data="admin_tokens")],
         [InlineKeyboardButton("💳 Новые оплаты", callback_data="admin_payments")],
         [InlineKeyboardButton("⚙️ Настройки", callback_data="admin_settings")],
