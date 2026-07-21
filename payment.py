@@ -54,74 +54,126 @@ def plan_per_month(months):
     return _fmt_price(float(get_plan_price('price_eur', months)) / months)
 
 
-def build_buy_text(language):
-    """Продающий текст экрана Pro: выгоды, соцдоказательство, якорь цены"""
-    from database import get_confirmed_buyers_count
+def build_buy_text(language, mode='buy', user_id=None):
+    """Продающий текст. mode: buy | limit | locked."""
+    from database import get_confirmed_buyers_count, user_eligible_for_bonus_24h
 
-    parts = [
-        f"{t(language, 'buy_title')}\n"
-        f"_{t(language, 'buy_tagline')}_",
-        t(language, 'buy_features'),
-    ]
+    price_3m = get_plan_price('price_eur', 3)
+    pct_3m = plan_discount_percent(3)
+    per_month = plan_per_month(3)
+
+    if mode == 'limit':
+        parts = [
+            f"🔒 *{t(language, 'limit_locked_title')}*\n"
+            f"{t(language, 'limit_locked_body')}",
+            t(language, 'paywall_hero',
+              price=price_3m, pct=pct_3m, per_month=per_month),
+        ]
+    elif mode == 'locked':
+        parts = [
+            f"🔒 {t(language, 'category_locked')}",
+            t(language, 'paywall_hero',
+              price=price_3m, pct=pct_3m, per_month=per_month),
+        ]
+    else:
+        parts = [
+            f"{t(language, 'buy_title')}\n"
+            f"_{t(language, 'buy_tagline')}_",
+            t(language, 'buy_features'),
+            t(language, 'paywall_hero',
+              price=price_3m, pct=pct_3m, per_month=per_month),
+        ]
 
     buyers = get_confirmed_buyers_count()
     if buyers >= 10:
         shown = (buyers // 10) * 10
         parts.append(t(language, 'buy_social', n=shown))
 
-    monthly = get_plan_price('price_eur', 1)
-    per_six = plan_per_month(6)
-    if float(per_six) < float(monthly):
-        parts.append(
-            t(language, 'buy_anchor', per_month=per_six, full=monthly)
-        )
+    # +14 дней только когда реально даём (лимит / eligible)
+    if mode == 'limit' or (user_id and user_eligible_for_bonus_24h(user_id)):
+        parts.append(t(language, 'buy_bonus_24h'))
 
     parts.append(
-        f"{t(language, 'buy_instant')}\n{t(language, 'buy_trust')}"
+        f"{t(language, 'buy_instant')}\n"
+        f"{t(language, 'buy_trust')}"
     )
     parts.append(f"*{t(language, 'choose_plan')}*")
     return '\n\n'.join(parts)
 
 
-def buy_plans_keyboard(language='en'):
-    """Витрина тарифов: 1 / 3 (хит) / 6 месяцев (максимальная выгода)"""
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton(
-            t(language, 'plan_1m', price=get_plan_price('price_eur', 1)),
-            callback_data='plan_1',
-        )],
-        [InlineKeyboardButton(
-            t(language, 'plan_3m',
+def buy_plans_keyboard(language='en', hero=True):
+    """Витрина тарифов: 3 месяца (якорь) → 1 месяц → 6 месяцев."""
+    rows = []
+    if hero:
+        rows.append([InlineKeyboardButton(
+            t(language, 'plan_3m_hero',
               price=get_plan_price('price_eur', 3),
               pct=plan_discount_percent(3)),
             callback_data='plan_3',
-        )],
-        [InlineKeyboardButton(
+        )])
+        rows.append([InlineKeyboardButton(
+            t(language, 'plan_1m', price=get_plan_price('price_eur', 1)),
+            callback_data='plan_1',
+        )])
+        rows.append([InlineKeyboardButton(
             t(language, 'plan_6m',
               price=get_plan_price('price_eur', 6),
               pct=plan_discount_percent(6)),
             callback_data='plan_6',
-        )],
-        [InlineKeyboardButton(t(language, 'back_menu'), callback_data='main_menu')],
-    ])
+        )])
+    else:
+        rows.append([InlineKeyboardButton(
+            t(language, 'plan_1m', price=get_plan_price('price_eur', 1)),
+            callback_data='plan_1',
+        )])
+        rows.append([InlineKeyboardButton(
+            t(language, 'plan_3m',
+              price=get_plan_price('price_eur', 3),
+              pct=plan_discount_percent(3)),
+            callback_data='plan_3',
+        )])
+        rows.append([InlineKeyboardButton(
+            t(language, 'plan_6m',
+              price=get_plan_price('price_eur', 6),
+              pct=plan_discount_percent(6)),
+            callback_data='plan_6',
+        )])
+    rows.append([InlineKeyboardButton(t(language, 'back_menu'), callback_data='main_menu')])
+    return InlineKeyboardMarkup(rows)
+
+
+_PLACEHOLDER_MARKERS = (
+    '9999 9999', '4149 4999', 'TXxx', 'DE89 3704', 'XXXX', 'xxxXxxx',
+)
+
+
+def _looks_placeholder(*values):
+    blob = ' '.join(str(v or '') for v in values)
+    return any(m in blob for m in _PLACEHOLDER_MARKERS)
 
 
 def buy_methods_keyboard(language='en', months=1):
-    """Способы оплаты для выбранного тарифа"""
+    """Способы оплаты для выбранного тарифа (без плейсхолдер-реквизитов)"""
     buttons = []
-    if is_true(get_setting('card_uah_enabled', 'true')):
+    if is_true(get_setting('card_uah_enabled', 'true')) and not _looks_placeholder(
+        get_setting('card_uah_number', ''), get_setting('card_uah_recipient', '')
+    ):
         price = get_plan_price('price_uah', months)
         buttons.append([InlineKeyboardButton(
             t(language, 'buy_card_uah', price=price),
             callback_data=f'pay_card_uah_{months}',
         )])
-    if is_true(get_setting('card_eur_enabled', 'true')):
+    if is_true(get_setting('card_eur_enabled', 'true')) and not _looks_placeholder(
+        get_setting('card_eur_iban', ''), get_setting('card_eur_recipient', '')
+    ):
         price = get_plan_price('price_eur', months)
         buttons.append([InlineKeyboardButton(
             t(language, 'buy_card_eur', price=price),
             callback_data=f'pay_card_eur_{months}',
         )])
-    if is_true(get_setting('usdt_enabled', 'true')):
+    if is_true(get_setting('usdt_enabled', 'true')) and not _looks_placeholder(
+        get_setting('usdt_wallet', '')
+    ):
         price = get_plan_price('price_usd', months)
         buttons.append([InlineKeyboardButton(
             t(language, 'buy_usdt', price=price),
@@ -135,29 +187,39 @@ def get_payment_details(method, language='en', months=1):
     """Получить реквизиты и сумму для способа оплаты с учётом тарифа"""
     if method == 'card_uah':
         amount = get_plan_price('price_uah', months)
+        number = get_setting('card_uah_number', '')
+        enabled = (
+            is_true(get_setting('card_uah_enabled', 'true'))
+            and not _looks_placeholder(number)
+        )
         return {
             'amount': float(amount),
             'currency': 'UAH',
             'method': 'card_uah',
-            'enabled': is_true(get_setting('card_uah_enabled', 'true')),
+            'enabled': enabled,
             'title': f"💳 *{t(language, 'payment_title_uah')}*",
             'details': (
                 f"{t(language, 'bank')}: `{get_setting('card_uah_bank', '')}`\n"
-                f"{t(language, 'card')}: `{get_setting('card_uah_number', '')}`\n"
+                f"{t(language, 'card')}: `{number}`\n"
                 f"{t(language, 'recipient')}: `{get_setting('card_uah_recipient', '')}`\n"
                 f"{t(language, 'amount')}: *{amount} UAH*"
             ),
         }
     if method == 'card_eur':
         amount = get_plan_price('price_eur', months)
+        iban = get_setting('card_eur_iban', '')
+        enabled = (
+            is_true(get_setting('card_eur_enabled', 'true'))
+            and not _looks_placeholder(iban)
+        )
         return {
             'amount': float(amount),
             'currency': 'EUR',
             'method': 'card_eur',
-            'enabled': is_true(get_setting('card_eur_enabled', 'true')),
+            'enabled': enabled,
             'title': f"💳 *{t(language, 'payment_title_eur')}*",
             'details': (
-                f"IBAN: `{get_setting('card_eur_iban', '')}`\n"
+                f"IBAN: `{iban}`\n"
                 f"BIC: `{get_setting('card_eur_bic', '')}`\n"
                 f"{t(language, 'recipient')}: `{get_setting('card_eur_recipient', '')}`\n"
                 f"{t(language, 'amount')}: *{amount} EUR*"
@@ -165,15 +227,20 @@ def get_payment_details(method, language='en', months=1):
         }
     if method == 'usdt':
         amount = get_plan_price('price_usd', months)
+        wallet = get_setting('usdt_wallet', '')
+        enabled = (
+            is_true(get_setting('usdt_enabled', 'true'))
+            and not _looks_placeholder(wallet)
+        )
         return {
             'amount': float(amount),
             'currency': 'USD',
             'method': 'usdt',
-            'enabled': is_true(get_setting('usdt_enabled', 'true')),
+            'enabled': enabled,
             'title': f"🪙 *{t(language, 'payment_title_usdt')}*",
             'details': (
                 f"{t(language, 'network')}: `{get_setting('usdt_network', 'TRC20')}`\n"
-                f"{t(language, 'wallet')}: `{get_setting('usdt_wallet', '')}`\n"
+                f"{t(language, 'wallet')}: `{wallet}`\n"
                 f"{t(language, 'amount')}: *{amount} USDT*"
             ),
         }
@@ -182,8 +249,23 @@ def get_payment_details(method, language='en', months=1):
 
 async def buy(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Команда /buy — выбор тарифа Pro"""
-    language = _language(update.effective_user.id)
-    text = build_buy_text(language)
+    from config import ADMIN_IDS as _ADMINS
+    if is_true(get_setting('maintenance_mode', 'false')):
+        if update.effective_user.id not in _ADMINS:
+            language = _language(update.effective_user.id)
+            text = t(language, 'maintenance')
+            if update.callback_query:
+                await update.callback_query.answer(text, show_alert=True)
+            else:
+                await update.message.reply_text(text)
+            return
+
+    context.user_data['awaiting_screenshot'] = False
+    context.user_data.pop('pending_order_id', None)
+    context.user_data.pop('admin_action', None)
+    uid = update.effective_user.id
+    language = _language(uid)
+    text = build_buy_text(language, user_id=uid)
     if update.callback_query:
         await update.callback_query.answer(t(language, 'toast_buy'))
         await update.callback_query.edit_message_text(
@@ -237,7 +319,8 @@ async def payment_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_id, info['amount'], info['currency'], info['method'], months=months
     )
     context.user_data['pending_order_id'] = order_id
-    context.user_data['awaiting_screenshot'] = False
+    # Можно слать чек сразу, без обязательного «Я оплатил»
+    context.user_data['awaiting_screenshot'] = True
 
     plan_name = t(language, f'plan_name_{months}')
     text = (
@@ -256,13 +339,13 @@ async def payment_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def i_paid_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Пользователь нажал «Я оплатил»"""
     query = update.callback_query
-    await query.answer()
     language = _language(query.from_user.id)
 
     order_id = query.data.replace('i_paid_', '')
     payment = get_payment(order_id)
 
     if not payment:
+        await query.answer()
         await query.edit_message_text(
             t(language, 'order_not_found'),
             reply_markup=back_to_menu_keyboard(language),
@@ -273,6 +356,7 @@ async def i_paid_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.answer(t(language, 'not_your_order'), show_alert=True)
         return
 
+    await query.answer()
     context.user_data['pending_order_id'] = order_id
     context.user_data['awaiting_screenshot'] = True
 
@@ -289,26 +373,31 @@ async def i_paid_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-async def handle_screenshot(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Обработка скриншота оплаты"""
-    if not context.user_data.get('awaiting_screenshot'):
-        return False
-
+async def handle_screenshot(update: Update, context: ContextTypes.DEFAULT_TYPE, file_id=None, caption=None):
+    """Обработка скриншота/PDF оплаты"""
     order_id = context.user_data.get('pending_order_id')
     if not order_id:
         pending = get_user_pending_payment(update.effective_user.id)
         if pending:
             order_id = pending['order_id']
+        elif not context.user_data.get('awaiting_screenshot'):
+            return False
         else:
             return False
 
     payment = get_payment(order_id)
     if not payment or payment['user_id'] != update.effective_user.id:
         return False
+    if payment['status'] not in ('pending', 'paid'):
+        return False
 
-    photo = update.message.photo[-1]
-    caption = update.message.caption or ''
-    update_payment_screenshot(order_id, photo.file_id, caption)
+    if file_id is None:
+        if not update.message.photo:
+            return False
+        file_id = update.message.photo[-1].file_id
+        caption = update.message.caption or ''
+
+    update_payment_screenshot(order_id, file_id, caption or '')
 
     context.user_data['awaiting_screenshot'] = False
     context.user_data.pop('pending_order_id', None)
@@ -325,22 +414,26 @@ async def handle_screenshot(update: Update, context: ContextTypes.DEFAULT_TYPE):
     log_action(update.effective_user.id, 'payment_screenshot', order_id)
 
     if is_true(get_setting('admin_notifications', 'true')):
-        await notify_admins_payment(context, order_id, photo.file_id)
+        await notify_admins_payment(context, order_id, file_id)
 
     return True
 
 
 async def handle_txid_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Обработка TXID для USDT"""
-    if not context.user_data.get('awaiting_screenshot'):
-        return False
-
     order_id = context.user_data.get('pending_order_id')
+    if not order_id and not context.user_data.get('awaiting_screenshot'):
+        pending = get_user_pending_payment(update.effective_user.id)
+        if not pending or pending.get('payment_method') != 'usdt':
+            return False
+        order_id = pending['order_id']
     if not order_id:
         return False
 
     payment = get_payment(order_id)
     if not payment or payment['payment_method'] != 'usdt':
+        return False
+    if payment['user_id'] != update.effective_user.id:
         return False
 
     txid = update.message.text.strip()

@@ -1,4 +1,6 @@
 import asyncio
+import os
+import tempfile
 import time
 from datetime import datetime
 
@@ -13,7 +15,8 @@ from database import (
     get_prompts_by_category, get_prompt, check_and_expire_subscriptions,
     get_popular_prompts, parse_prompt_variables, increment_prompt_usage,
     set_user_language, get_free_requests_remaining, get_category_counts,
-    touch_user_activity,
+    touch_user_activity, mark_trial_limit_hit, get_setting_int,
+    get_user_pending_payment,
 )
 from claude_api import call_claude
 from keyboards import (
@@ -27,6 +30,10 @@ from payment import (
 )
 from admin_panel import admin_text_handler, is_admin
 from prompts_data import CATEGORY_ALIASES, PREMIUM_CATEGORIES
+from enrichment import (
+    ALLOWED_FILE_EXTS, MAX_FILE_MB, MAX_URLS_PER_MESSAGE,
+    extract_urls, fetch_url_text, extract_file_text, dynamic_context,
+)
 from utils import format_tokens, format_token_bar, is_true, clean_ai_text
 from i18n import (
     SUPPORTED_LANGUAGES, t, detect_language, category_name, prompt_title,
@@ -45,6 +52,51 @@ FORMAT_INSTRUCTION = (
     "(no **, ##, backticks, no *bullets*). Use short paragraphs, emoji as "
     "section markers where helpful, and '•' for list items."
 )
+
+
+def _multi_step_generate(prompt_text, system_prompt):
+    """Трёхшаговая генерация: структура → контент → проверка.
+
+    Выполняется в рабочем потоке. Возвращает (text, in_tokens, out_tokens);
+    при сбое любого шага — ответ этого шага как есть (ошибку распознает
+    вызывающий код по нулевым токенам).
+    """
+    total_in = 0
+    total_out = 0
+
+    outline, i1, o1 = call_claude(
+        "Create a detailed outline for the response to the task below. "
+        "Output only the outline, no extra commentary.\n\n"
+        f"Task:\n{prompt_text}",
+        system_prompt=system_prompt,
+    )
+    if i1 + o1 == 0:
+        return outline, 0, 0
+    total_in += i1
+    total_out += o1
+
+    draft, i2, o2 = call_claude(
+        f"Task:\n{prompt_text}\n\n"
+        "Follow this outline and write the complete, polished result:\n"
+        f"{outline}",
+        system_prompt=system_prompt,
+    )
+    if i2 + o2 == 0:
+        return draft, 0, 0
+    total_in += i2
+    total_out += o2
+
+    final, i3, o3 = call_claude(
+        "Review the result below for factual errors, inconsistencies and "
+        "mistakes. Fix everything you find and output only the final "
+        "corrected version, without commentary.\n\n"
+        f"Task:\n{prompt_text}\n\nResult:\n{draft}",
+        system_prompt=system_prompt,
+    )
+    if i3 + o3 == 0:
+        # Проверка не удалась — черновик двух успешных шагов лучше, чем ошибка
+        return draft, total_in, total_out
+    return final, total_in + i3, total_out + o3
 
 
 def user_language(user):
@@ -83,7 +135,7 @@ def build_home_text(user):
             f"`{format_tokens(remaining)} / {format_tokens(limit)}`"
         )
     else:
-        request_limit = int(get_setting('free_requests', '10'))
+        request_limit = int(get_setting('free_requests', '3'))
         requests_left = get_free_requests_remaining(user['user_id'])
         status_lines = (
             f"*{t(language, 'home_free_left', left=requests_left, total=request_limit)}*"
@@ -141,7 +193,7 @@ async def check_access(user):
     remaining = get_remaining_tokens(user['user_id'])
     if user['subscription_status'] == 'trial':
         free_requests = get_free_requests_remaining(user['user_id'])
-        request_cost = int(get_setting('free_request_cost', '100000'))
+        request_cost = get_setting_int('free_request_cost', 100000)
         if free_requests <= 0 or remaining < request_cost:
             return False, t(user_language(user), 'trial_exhausted'), 'trial_exhausted'
     if remaining <= 0:
@@ -151,18 +203,30 @@ async def check_access(user):
     return True, None, None
 
 
-async def send_limit_locked(update, language):
-    """Экран блокировки: лимит исчерпан → тарифы Pro"""
-    text = f"🔒 {t(language, 'limit_locked')}\n\n{build_buy_text(language)}"
+async def send_access_paywall(update, language, user_id=None, reason='trial_exhausted'):
+    """Единый paywall для trial_exhausted / expired / pro_exhausted"""
+    if user_id and reason == 'trial_exhausted':
+        mark_trial_limit_hit(user_id)
+    text = build_buy_text(language, mode='limit', user_id=user_id)
     keyboard = buy_plans_keyboard(language)
     if update.callback_query:
-        await update.callback_query.edit_message_text(
-            text, reply_markup=keyboard, parse_mode='Markdown'
-        )
+        try:
+            await update.callback_query.edit_message_text(
+                text, reply_markup=keyboard, parse_mode='Markdown'
+            )
+        except Exception:
+            await update.callback_query.message.reply_text(
+                text, reply_markup=keyboard, parse_mode='Markdown'
+            )
     elif update.message:
         await update.message.reply_text(
             text, reply_markup=keyboard, parse_mode='Markdown'
         )
+
+
+async def send_limit_locked(update, language, user_id=None):
+    """Экран блокировки: лимит исчерпан → тарифы Pro (якорь 3 мес)"""
+    await send_access_paywall(update, language, user_id, 'trial_exhausted')
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -210,14 +274,19 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     language = user_language(user)
+    welcome = (get_setting('welcome_message', '') or '').strip()
+    home = build_home_text(user)
+    text = f"{welcome}\n\n{home}" if welcome else home
     await update.message.reply_text(
-        build_home_text(user),
+        text,
         reply_markup=main_menu_keyboard(is_admin=is_admin(tg_user.id), language=language),
         parse_mode='Markdown',
     )
 
 
 async def language_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if await check_maintenance(update):
+        return
     user = await ensure_user(update)
     language = user_language(user)
     text = t(language, 'select_language')
@@ -294,7 +363,7 @@ async def profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"{t(language, 'profile_available')}: `{format_tokens(remaining)}`"
         )
     else:
-        request_limit = int(get_setting('free_requests', '10'))
+        request_limit = int(get_setting('free_requests', '3'))
         requests_left = get_free_requests_remaining(user['user_id'])
         text = (
             f"{t(language, 'profile_title')}\n\n"
@@ -328,8 +397,8 @@ async def referral(update: Update, context: ContextTypes.DEFAULT_TYPE):
     language = user_language(user)
     bot_info = await context.bot.get_me()
     link = f"https://t.me/{bot_info.username}?start={user['referral_code']}"
-    bonus = format_tokens(int(get_setting('referral_bonus', '5000000')))
-    max_refs = get_setting('max_referrals', '5')
+    bonus = format_tokens(get_setting_int('referral_bonus', 5000000))
+    max_refs = get_setting_int('max_referrals', 5)
 
     text = (
         f"{t(language, 'ref_title')}\n\n"
@@ -353,6 +422,8 @@ async def referral(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if await check_maintenance(update):
+        return
     user = await ensure_user(update)
     language = user_language(user)
     text = (
@@ -373,6 +444,8 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def more_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if await check_maintenance(update):
+        return
     query = update.callback_query
     user = await ensure_user(update)
     language = user_language(user)
@@ -393,6 +466,11 @@ async def main_menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     context.user_data.pop('selected_prompt_id', None)
     context.user_data.pop('prompt_var_values', None)
     context.user_data.pop('awaiting_screenshot', None)
+    context.user_data.pop('admin_action', None)
+    context.user_data.pop('broadcast_from_chat', None)
+    context.user_data.pop('broadcast_message_id', None)
+    context.user_data.pop('broadcast_preview', None)
+    context.user_data.pop('pending_order_id', None)
 
     user = await ensure_user(update)
     language = user_language(user)
@@ -415,8 +493,8 @@ async def ask_ai_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     ok, msg, reason = await check_access(user)
     if not ok:
-        if reason == 'trial_exhausted':
-            await send_limit_locked(update, language)
+        if reason in ('trial_exhausted', 'expired', 'pro_exhausted'):
+            await send_access_paywall(update, language, user['user_id'], reason)
         else:
             await query.edit_message_text(msg, reply_markup=back_to_menu_keyboard(language))
         return
@@ -491,7 +569,7 @@ async def send_category_locked(query, language, category=None):
                 + '\n'.join(lines) + '\n\n'
             )
     await query.edit_message_text(
-        f"{teaser}🔒 {t(language, 'category_locked')}\n\n{build_buy_text(language)}",
+        f"{teaser}{build_buy_text(language, mode='locked')}",
         reply_markup=buy_plans_keyboard(language),
         parse_mode='Markdown',
     )
@@ -543,8 +621,8 @@ async def prompt_use_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     language = user_language(user)
     ok, msg, reason = await check_access(user)
     if not ok:
-        if reason == 'trial_exhausted':
-            await send_limit_locked(update, language)
+        if reason in ('trial_exhausted', 'expired', 'pro_exhausted'):
+            await send_access_paywall(update, language, user['user_id'], reason)
         else:
             await query.edit_message_text(msg, reply_markup=back_to_menu_keyboard(language))
         return
@@ -639,6 +717,7 @@ async def process_ai_request(
     prompt_text: str,
     system_prompt=None,
     prompt_id=None,
+    multi_step=False,
 ):
     """Общая логика запроса к Claude с учётом лимитов"""
     user = await ensure_user(update)
@@ -646,11 +725,12 @@ async def process_ai_request(
     ok, msg, reason = await check_access(user)
     if not ok:
         # Исчерпанный лимит: система заблокирована, показываем тарифы
-        if reason == 'trial_exhausted':
+        if reason in ('trial_exhausted', 'expired', 'pro_exhausted'):
+            mark_trial_limit_hit(user['user_id']) if reason == 'trial_exhausted' else None
             target = update.message or (update.callback_query.message if update.callback_query else None)
             if target:
                 await target.reply_text(
-                    f"🔒 {t(language, 'limit_locked')}\n\n{build_buy_text(language)}",
+                    build_buy_text(language, mode='limit', user_id=user['user_id']),
                     reply_markup=buy_plans_keyboard(language),
                     parse_mode='Markdown',
                 )
@@ -682,16 +762,25 @@ async def process_ai_request(
         _animate_thinking(context.bot, wait_msg, language, category)
     )
 
+    live_context = await asyncio.to_thread(dynamic_context, prompt_text)
     localized_system = (
         f"{system_prompt or SYSTEM_PROMPT}\n\n"
+        f"{live_context}\n"
         f"{response_language_instruction(language)}\n"
         f"{FORMAT_INSTRUCTION}"
     )
+    # Многошаговая генерация — только для Pro (кратно дороже по токенам)
+    use_multi_step = multi_step and user['subscription_status'] == 'active'
     started_at = time.monotonic()
     try:
-        response_text, input_tokens, output_tokens = await asyncio.to_thread(
-            call_claude, prompt_text, system_prompt=localized_system
-        )
+        if use_multi_step:
+            response_text, input_tokens, output_tokens = await asyncio.to_thread(
+                _multi_step_generate, prompt_text, localized_system
+            )
+        else:
+            response_text, input_tokens, output_tokens = await asyncio.to_thread(
+                call_claude, prompt_text, system_prompt=localized_system
+            )
     finally:
         anim_task.cancel()
         try:
@@ -734,9 +823,15 @@ async def process_ai_request(
 
     show_upgrade = False
     requests_left_after = None
+    used_before = None
     if not call_failed and not is_pro_user:
         requests_left_after = get_free_requests_remaining(user['user_id'])
-        show_upgrade = requests_left_after is not None and requests_left_after <= 2
+        total_free = int(get_setting('free_requests', '3'))
+        used_before = max(0, total_free - (requests_left_after or 0))
+        # CTA после каждого trial-ответа
+        show_upgrade = True
+        if requests_left_after is not None and requests_left_after <= 0:
+            mark_trial_limit_hit(user['user_id'])
 
     # Для триала показываем остаток операций, для Pro — баланс токенов
     if is_pro_user:
@@ -745,7 +840,7 @@ async def process_ai_request(
         left = requests_left_after
         if left is None:
             left = get_free_requests_remaining(user['user_id'])
-        total = int(get_setting('free_requests', '10'))
+        total = int(get_setting('free_requests', '3'))
         remaining_label = f"{t(language, 'requests_left')}: {left} / {total}"
 
     chunks = []
@@ -776,10 +871,13 @@ async def process_ai_request(
                     f"◇ {t(language, 'done_in', seconds=elapsed_seconds)}"
                     f" · {remaining_label}"
                 )
-            if show_upgrade:
-                footer += (
-                    f"\n⚡ {t(language, 'low_balance_nudge', remaining=requests_left_after)}"
-                )
+            if show_upgrade and requests_left_after is not None:
+                if requests_left_after <= 0:
+                    footer += f"\n⚡ {t(language, 'limit_nudge_zero')}"
+                else:
+                    footer += (
+                        f"\n⚡ {t(language, 'low_balance_nudge', remaining=requests_left_after)}"
+                    )
             if len(chunk) + len(footer) < 4096:
                 chunk += footer
         reply_markup = (
@@ -787,6 +885,21 @@ async def process_ai_request(
             if i == len(chunks) - 1 else None
         )
         await reply_target.reply_text(chunk, reply_markup=reply_markup)
+
+    # Жёсткий оффер после 1-го результата и при полном исчерпании
+    if not call_failed and not is_pro_user and requests_left_after is not None:
+        if used_before == 1:
+            await reply_target.reply_text(
+                t(language, 'after_first_win'),
+                reply_markup=buy_plans_keyboard(language),
+                parse_mode='Markdown',
+            )
+        elif requests_left_after <= 0:
+            await reply_target.reply_text(
+                build_buy_text(language, mode='limit'),
+                reply_markup=buy_plans_keyboard(language),
+                parse_mode='Markdown',
+            )
 
 
 async def execute_store_prompt(update, context, prompt, var_dict):
@@ -801,6 +914,7 @@ async def execute_store_prompt(update, context, prompt, var_dict):
         update, context, user_prompt,
         system_prompt=system,
         prompt_id=prompt.get('id'),
+        multi_step=bool(prompt.get('multi_step')),
     )
 
 
@@ -849,8 +963,44 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not text or not text.strip():
         return
 
-    context.user_data.pop('awaiting_ai', None)
-    await process_ai_request(update, context, text.strip())
+    user = await ensure_user(update)
+    language = user_language(user)
+    awaiting_ai = context.user_data.pop('awaiting_ai', None)
+    # Pro — свободный чат; триал — только после кнопки «Спросить AI»
+    if user['subscription_status'] != 'active' and not awaiting_ai:
+        await update.message.reply_text(
+            t(language, 'ask_ai_hint'),
+            reply_markup=main_menu_keyboard(
+                is_admin=is_admin(user['user_id']), language=language
+            ),
+            parse_mode='Markdown',
+        )
+        return
+
+    prompt_text = text.strip()
+    urls = extract_urls(prompt_text)
+    if urls:
+        if not _has_pro_access(user):
+            await update.message.reply_text(
+                f"🔗 {t(language, 'link_locked')}\n\n{build_buy_text(language, mode='locked', user_id=user['user_id'])}",
+                reply_markup=buy_plans_keyboard(language),
+                parse_mode='Markdown',
+            )
+            return
+        fetched = []
+        for url in urls[:MAX_URLS_PER_MESSAGE]:
+            page_text = await asyncio.to_thread(fetch_url_text, url)
+            if page_text:
+                fetched.append(f"--- PAGE CONTENT ({url}) ---\n{page_text}")
+        if not fetched:
+            await update.message.reply_text(
+                t(language, 'url_fetch_failed'),
+                reply_markup=back_to_menu_keyboard(language),
+            )
+            return
+        prompt_text = prompt_text + '\n\n' + '\n\n'.join(fetched)
+
+    await process_ai_request(update, context, prompt_text)
 
 
 async def _handle_prompt_variables_input(update, context):
@@ -939,13 +1089,90 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(t(user_language(user), 'photo_hint'))
 
 
+DOC_ANALYSIS_INSTRUCTION = (
+    "Analyze this document and provide a clear, structured summary: "
+    "key points, important details, risks or issues worth attention."
+)
+
+
 async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if _is_broadcast_input(context):
         from admin_panel import broadcast_message
         await broadcast_message(update, context)
         return
+
     user = await ensure_user(update)
-    await update.message.reply_text(t(user_language(user), 'file_unsupported'))
+    language = user_language(user)
+
+    document = update.message.document
+    if not document:
+        await update.message.reply_text(t(language, 'file_unsupported'))
+        return
+
+    filename = document.file_name or 'file'
+    ext = os.path.splitext(filename)[1].lower()
+    mime = (document.mime_type or '').lower()
+
+    # PDF/изображение как чек оплаты
+    is_receipt_doc = (
+        ext in ('.pdf', '.jpg', '.jpeg', '.png', '.webp')
+        or mime.startswith('image/')
+        or mime == 'application/pdf'
+    )
+    if is_receipt_doc and (
+        context.user_data.get('awaiting_screenshot')
+        or context.user_data.get('pending_order_id')
+        or get_user_pending_payment(user['user_id'])
+    ):
+        handled = await handle_screenshot(
+            update, context,
+            file_id=document.file_id,
+            caption=update.message.caption or filename,
+        )
+        if handled:
+            return
+
+    # Анализ документов — Pro-функция
+    if not _has_pro_access(user):
+        await update.message.reply_text(
+            f"📎 {t(language, 'file_locked')}\n\n{build_buy_text(language, mode='locked', user_id=user['user_id'])}",
+            reply_markup=buy_plans_keyboard(language),
+            parse_mode='Markdown',
+        )
+        return
+
+    if ext not in ALLOWED_FILE_EXTS:
+        await update.message.reply_text(t(language, 'file_bad_type'))
+        return
+    if (document.file_size or 0) > MAX_FILE_MB * 1024 * 1024:
+        await update.message.reply_text(t(language, 'file_too_big', mb=MAX_FILE_MB))
+        return
+
+    tmp_path = None
+    try:
+        tg_file = await document.get_file()
+        with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tmp:
+            tmp_path = tmp.name
+        await tg_file.download_to_drive(tmp_path)
+        doc_text = await asyncio.to_thread(extract_file_text, tmp_path, ext)
+    except Exception:
+        doc_text = ''
+    finally:
+        if tmp_path:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+
+    if not doc_text:
+        await update.message.reply_text(t(language, 'file_empty'))
+        return
+
+    instruction = (update.message.caption or '').strip() or DOC_ANALYSIS_INSTRUCTION
+    prompt_text = (
+        f"{instruction}\n\n--- DOCUMENT ({filename}) ---\n{doc_text}"
+    )
+    await process_ai_request(update, context, prompt_text)
 
 
 async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -963,6 +1190,8 @@ async def handle_unknown(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def buy_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if await check_maintenance(update):
+        return
     await buy(update, context)
 
 

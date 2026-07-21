@@ -113,7 +113,7 @@ def init_db():
         ('price_eur_6m', '60', 'Цена в EUR (6 месяцев)'),
         ('price_usd_6m', '65', 'Цена в USD (6 месяцев)'),
         ('price_uah_6m', '2520', 'Цена в UAH (6 месяцев)'),
-        ('free_requests', '10', 'Бесплатных запросов'),
+        ('free_requests', '3', 'Бесплатных запросов'),
         ('free_request_cost', '100000', 'Списание за бесплатный запрос'),
         ('free_tokens_limit', '1000000', 'Бесплатных токенов на пользователя'),
         ('subscription_tokens', '50000000', 'Токенов в подписке'),
@@ -134,6 +134,7 @@ def init_db():
         ('admin_notifications', 'true', 'Уведомления админам'),
         ('payment_notification_chat_id', '', 'Группа уведомлений об оплатах'),
         ('welcome_message', 'Привет! Я BrainBoost — твой AI-помощник', 'Приветствие'),
+        ('support_url', '', 'Ссылка поддержки (https://t.me/...)'),
         ('maintenance_mode', 'false', 'Режим обслуживания'),
     ]
 
@@ -157,27 +158,47 @@ def init_db():
             ('https://claude-code-cli.vibecode-claude.online',),
         )
 
-    old_model = cursor.execute(
-        "SELECT setting_value FROM admin_settings WHERE setting_key = 'claude_model'"
-    ).fetchone()
-    if old_model and old_model[0] in (
-        'claude-3-5-sonnet-20241022',
-        'claude-3-5-sonnet-20240620',
-        'claude-3-opus-20240229',
-        'claude-opus-4-8',  # часто 400 у провайдера — переключаем на стабильный 4-7
-    ):
-        cursor.execute(
-            "UPDATE admin_settings SET setting_value = ?, updated_at = CURRENT_TIMESTAMP "
-            "WHERE setting_key = 'claude_model'",
-            ('claude-opus-4-7',),
-        )
+    # Одноразовые миграции (не затирают выбор админа на каждом рестарте)
+    def _flag_done(flag):
+        row = cursor.execute(
+            'SELECT setting_value FROM admin_settings WHERE setting_key = ?',
+            (flag,),
+        ).fetchone()
+        return bool(row and row[0] == '1')
 
-    cursor.execute(
-        "UPDATE admin_settings SET setting_value = '2.1.198', "
-        "updated_at = CURRENT_TIMESTAMP "
-        "WHERE setting_key = 'claude_client_version' "
-        "AND setting_value = '2.1.205'"
-    )
+    def _mark_flag(flag):
+        cursor.execute('''
+            INSERT INTO admin_settings (setting_key, setting_value, description)
+            VALUES (?, '1', ?)
+            ON CONFLICT(setting_key) DO UPDATE SET
+                setting_value = '1',
+                updated_at = CURRENT_TIMESTAMP
+        ''', (flag, f'one-shot migration {flag}'))
+
+    if not _flag_done('migration_model_legacy_v1'):
+        old_model = cursor.execute(
+            "SELECT setting_value FROM admin_settings WHERE setting_key = 'claude_model'"
+        ).fetchone()
+        if old_model and old_model[0] in (
+            'claude-3-5-sonnet-20241022',
+            'claude-3-5-sonnet-20240620',
+            'claude-3-opus-20240229',
+        ):
+            cursor.execute(
+                "UPDATE admin_settings SET setting_value = ?, updated_at = CURRENT_TIMESTAMP "
+                "WHERE setting_key = 'claude_model'",
+                ('claude-opus-4-7',),
+            )
+        _mark_flag('migration_model_legacy_v1')
+
+    if not _flag_done('migration_cli_2_1_198'):
+        cursor.execute(
+            "UPDATE admin_settings SET setting_value = '2.1.198', "
+            "updated_at = CURRENT_TIMESTAMP "
+            "WHERE setting_key = 'claude_client_version' "
+            "AND setting_value = '2.1.205'"
+        )
+        _mark_flag('migration_cli_2_1_198')
 
     # Миграция таблицы prompts → магазин промтов
     prompt_cols = {
@@ -189,6 +210,7 @@ def init_db():
         'variables': "ALTER TABLE prompts ADD COLUMN variables TEXT DEFAULT '[\"topic\"]'",
         'icon': "ALTER TABLE prompts ADD COLUMN icon TEXT DEFAULT '📌'",
         'usage_count': "ALTER TABLE prompts ADD COLUMN usage_count INTEGER DEFAULT 0",
+        'multi_step': "ALTER TABLE prompts ADD COLUMN multi_step INTEGER DEFAULT 0",
     }
     for col, sql in alter_map.items():
         if col not in prompt_cols:
@@ -208,6 +230,10 @@ def init_db():
         cursor.execute(
             'ALTER TABLE payments ADD COLUMN months INTEGER DEFAULT 1'
         )
+    if 'abandoned_notified' not in payment_cols:
+        cursor.execute(
+            'ALTER TABLE payments ADD COLUMN abandoned_notified INTEGER DEFAULT 0'
+        )
 
     if 'renewal_notified' not in user_cols:
         cursor.execute(
@@ -218,6 +244,12 @@ def init_db():
         cursor.execute('ALTER TABLE users ADD COLUMN referer TEXT')
     if 'last_activity' not in user_cols:
         cursor.execute('ALTER TABLE users ADD COLUMN last_activity TEXT')
+    if 'limit_hit_at' not in user_cols:
+        cursor.execute('ALTER TABLE users ADD COLUMN limit_hit_at TEXT')
+    if 'sales_followup_step' not in user_cols:
+        cursor.execute(
+            'ALTER TABLE users ADD COLUMN sales_followup_step INTEGER DEFAULT 0'
+        )
 
     # Миграция цен на линейку 15/33/60 € (только если стояли старые дефолты)
     price_migrations = {
@@ -254,6 +286,14 @@ def init_db():
         SET setting_value = '10', updated_at = CURRENT_TIMESTAMP
         WHERE setting_key = 'free_requests' AND setting_value = '20'
     ''')
+    # Продажная воронка: 10 → 3 один раз (админский /set_free_requests 10 больше не затирается)
+    if not _flag_done('migration_free_requests_to_3'):
+        cursor.execute('''
+            UPDATE admin_settings
+            SET setting_value = '3', updated_at = CURRENT_TIMESTAMP
+            WHERE setting_key = 'free_requests' AND setting_value = '10'
+        ''')
+        _mark_flag('migration_free_requests_to_3')
 
     # Старые промты без variables → topic
     cursor.execute('''
@@ -281,6 +321,31 @@ def get_setting(key, default=None):
     ).fetchone()
     conn.close()
     return result[0] if result else default
+
+
+def get_setting_int(key, default=0):
+    """Безопасное чтение числовой настройки (битый /set_* не роняет бота)."""
+    raw = get_setting(key, str(default))
+    try:
+        return int(float(str(raw).replace(',', '.').strip()))
+    except (TypeError, ValueError):
+        return int(default)
+
+
+def _utc_now():
+    return datetime.utcnow()
+
+
+def _parse_ts(value):
+    if not value:
+        return None
+    raw = str(value).replace('T', ' ')[:19]
+    for fmt in ('%Y-%m-%d %H:%M:%S', '%Y-%m-%d'):
+        try:
+            return datetime.strptime(raw, fmt)
+        except ValueError:
+            continue
+    return None
 
 
 def set_setting(key, value, description=None):
@@ -381,25 +446,68 @@ def set_user_language(user_id, language):
 
 
 def add_referral_bonus(referrer_id, new_user_id):
+    """Начислить бонус рефереру. Если ещё не Pro — отложить до активации."""
     conn = get_db_connection()
-    referrer = get_user(referrer_id)
-    if referrer and referrer['subscription_status'] == 'active':
-        max_refs = int(get_setting('max_referrals', '5'))
-        if referrer['total_referrals'] < max_refs:
-            bonus = int(get_setting('referral_bonus', '5000000'))
-            conn.execute('''
-                UPDATE users
-                SET bonus_tokens = bonus_tokens + ?,
-                    total_referrals = total_referrals + 1
-                WHERE user_id = ?
-            ''', (bonus, referrer_id))
+    referrer = conn.execute(
+        'SELECT * FROM users WHERE user_id = ?', (referrer_id,)
+    ).fetchone()
+    if not referrer:
+        conn.close()
+        return
 
-            conn.execute('''
-                INSERT INTO logs (user_id, action, details)
-                VALUES (?, ?, ?)
-            ''', (referrer_id, 'referral_bonus', f'User {new_user_id}, bonus: {bonus}'))
-            conn.commit()
+    max_refs = get_setting_int('max_referrals', 5)
+    if (referrer['total_referrals'] or 0) >= max_refs:
+        conn.close()
+        return
+
+    conn.execute('''
+        UPDATE users SET total_referrals = total_referrals + 1 WHERE user_id = ?
+    ''', (referrer_id,))
+
+    if referrer['subscription_status'] == 'active':
+        bonus = get_setting_int('referral_bonus', 5000000)
+        conn.execute('''
+            UPDATE users SET bonus_tokens = bonus_tokens + ? WHERE user_id = ?
+        ''', (bonus, referrer_id))
+        conn.execute('''
+            INSERT INTO logs (user_id, action, details) VALUES (?, ?, ?)
+        ''', (referrer_id, 'referral_bonus', f'User {new_user_id}, bonus: {bonus}'))
+    else:
+        conn.execute('''
+            INSERT INTO logs (user_id, action, details) VALUES (?, ?, ?)
+        ''', (
+            referrer_id, 'referral_pending',
+            f'User {new_user_id}',
+        ))
+    conn.commit()
     conn.close()
+
+
+def flush_pending_referral_bonuses(referrer_id):
+    """Выдать отложенные реферальные бонусы при активации Pro."""
+    conn = get_db_connection()
+    pending = conn.execute('''
+        SELECT id, details FROM logs
+        WHERE user_id = ? AND action = 'referral_pending'
+    ''', (referrer_id,)).fetchall()
+    if not pending:
+        conn.close()
+        return 0
+
+    bonus = get_setting_int('referral_bonus', 5000000)
+    granted = 0
+    for row in pending:
+        conn.execute('''
+            UPDATE users SET bonus_tokens = bonus_tokens + ? WHERE user_id = ?
+        ''', (bonus, referrer_id))
+        conn.execute('''
+            UPDATE logs SET action = 'referral_bonus',
+                details = ? WHERE id = ?
+        ''', (f"{row['details']}, bonus: {bonus} (deferred)", row['id']))
+        granted += 1
+    conn.commit()
+    conn.close()
+    return granted
 
 
 def update_tokens_used(user_id, tokens, count_free_request=False):
@@ -425,14 +533,13 @@ def get_remaining_tokens(user_id):
     user = get_user(user_id)
     if not user:
         return 0
-
+    # Для Pro берём сохранённый лимит тарифа (1/3/6 мес), не дефолт 1 месяца
     if user['subscription_status'] == 'active':
-        limit = int(get_setting('subscription_tokens', '50000000')) + user['bonus_tokens']
+        base = user.get('tokens_limit') or get_setting_int('subscription_tokens', 50000000)
+        limit = int(base) + (user.get('bonus_tokens') or 0)
     else:
         limit = user['tokens_limit']
-
-    remaining = limit - user['tokens_used']
-    return max(0, remaining)
+    return max(0, limit - user['tokens_used'])
 
 
 def get_tokens_limit(user_id):
@@ -440,7 +547,8 @@ def get_tokens_limit(user_id):
     if not user:
         return 0
     if user['subscription_status'] == 'active':
-        return int(get_setting('subscription_tokens', '50000000')) + user['bonus_tokens']
+        base = user.get('tokens_limit') or get_setting_int('subscription_tokens', 50000000)
+        return int(base) + (user.get('bonus_tokens') or 0)
     return user['tokens_limit']
 
 
@@ -448,15 +556,106 @@ def get_free_requests_remaining(user_id):
     user = get_user(user_id)
     if not user or user['subscription_status'] != 'trial':
         return 0
-    limit = int(get_setting('free_requests', '10'))
+    limit = get_setting_int('free_requests', 3)
     return max(0, limit - (user.get('free_requests_used') or 0))
 
 
-def activate_subscription(user_id):
+def mark_trial_limit_hit(user_id):
+    """Зафиксировать момент исчерпания триала (для серии дожимов)."""
     conn = get_db_connection()
-    days = int(get_setting('subscription_days', '30'))
-    end_date = (datetime.now() + timedelta(days=days)).strftime('%Y-%m-%d')
-    tokens_limit = int(get_setting('subscription_tokens', '50000000'))
+    conn.execute('''
+        UPDATE users
+        SET limit_hit_at = COALESCE(limit_hit_at, CURRENT_TIMESTAMP),
+            sales_followup_step = COALESCE(sales_followup_step, 0)
+        WHERE user_id = ?
+          AND subscription_status IN ('trial', 'expired')
+    ''', (user_id,))
+    conn.commit()
+    conn.close()
+
+
+def clear_sales_funnel_state(user_id):
+    """Сбросить дожимы после покупки Pro."""
+    conn = get_db_connection()
+    conn.execute('''
+        UPDATE users
+        SET limit_hit_at = NULL,
+            sales_followup_step = 0
+        WHERE user_id = ?
+    ''', (user_id,))
+    conn.commit()
+    conn.close()
+
+
+def get_sales_followup_candidates():
+    """Кандидаты на дожим после исчерпания триала: 1ч / 24ч / 72ч."""
+    conn = get_db_connection()
+    rows = conn.execute('''
+        SELECT user_id, language, limit_hit_at,
+               COALESCE(sales_followup_step, 0) AS sales_followup_step
+        FROM users
+        WHERE subscription_status IN ('trial', 'expired')
+          AND limit_hit_at IS NOT NULL
+          AND COALESCE(sales_followup_step, 0) < 3
+    ''').fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def advance_sales_followup(user_id, step):
+    conn = get_db_connection()
+    conn.execute(
+        'UPDATE users SET sales_followup_step = ? WHERE user_id = ?',
+        (step, user_id),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_abandoned_payments(hours=1):
+    """Заказы без чека/TXID старше N часов, ещё без напоминания."""
+    conn = get_db_connection()
+    rows = conn.execute('''
+        SELECT p.order_id, p.user_id, p.amount, p.currency, p.months,
+               u.language
+        FROM payments p
+        JOIN users u ON u.user_id = p.user_id
+        WHERE p.status = 'pending'
+          AND COALESCE(p.abandoned_notified, 0) = 0
+          AND (p.screenshot_file_id IS NULL OR p.screenshot_file_id = '')
+          AND (p.txid IS NULL OR p.txid = '')
+          AND datetime(p.created_at) <= datetime('now', ?)
+          AND u.subscription_status != 'active'
+    ''', (f'-{int(hours)} hours',)).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def mark_payment_abandoned_notified(order_id):
+    conn = get_db_connection()
+    conn.execute(
+        'UPDATE payments SET abandoned_notified = 1 WHERE order_id = ?',
+        (order_id,),
+    )
+    conn.commit()
+    conn.close()
+
+
+def activate_subscription(user_id, months=1):
+    conn = get_db_connection()
+    days = get_setting_int('subscription_days', 30) * int(months)
+    tokens_limit = get_setting_int('subscription_tokens', 50000000) * int(months)
+
+    row = conn.execute(
+        'SELECT subscription_end_date, subscription_status FROM users WHERE user_id = ?',
+        (user_id,),
+    ).fetchone()
+    start = _utc_now()
+    if row and row['subscription_status'] == 'active' and row['subscription_end_date']:
+        current_end = _parse_ts(row['subscription_end_date'])
+        if current_end and current_end > start:
+            start = current_end
+    end_date = (start + timedelta(days=days)).strftime('%Y-%m-%d')
 
     conn.execute('''
         UPDATE users
@@ -464,16 +663,19 @@ def activate_subscription(user_id):
             tokens_limit = ?,
             tokens_used = 0,
             subscription_end_date = ?,
-            renewal_notified = 0
+            renewal_notified = 0,
+            limit_hit_at = NULL,
+            sales_followup_step = 0
         WHERE user_id = ?
     ''', (tokens_limit, end_date, user_id))
     conn.commit()
     conn.close()
+    flush_pending_referral_bonuses(user_id)
 
 
 def check_and_expire_subscriptions():
     conn = get_db_connection()
-    today = datetime.now().strftime('%Y-%m-%d')
+    today = _utc_now().strftime('%Y-%m-%d')
     expired = conn.execute('''
         SELECT user_id FROM users
         WHERE subscription_status = 'active'
@@ -482,7 +684,15 @@ def check_and_expire_subscriptions():
 
     for user in expired:
         conn.execute('''
-            UPDATE users SET subscription_status = 'expired' WHERE user_id = ?
+            UPDATE users
+            SET subscription_status = 'expired',
+                limit_hit_at = COALESCE(limit_hit_at, CURRENT_TIMESTAMP),
+                sales_followup_step = CASE
+                    WHEN limit_hit_at IS NULL THEN 0
+                    ELSE COALESCE(sales_followup_step, 0)
+                END,
+                renewal_notified = 0
+            WHERE user_id = ?
         ''', (user['user_id'],))
 
     conn.commit()
@@ -509,13 +719,41 @@ def block_user(user_id):
     conn.close()
 
 
+def unblock_user(user_id):
+    conn = get_db_connection()
+    row = conn.execute(
+        'SELECT subscription_end_date FROM users WHERE user_id = ?', (user_id,)
+    ).fetchone()
+    today = _utc_now().strftime('%Y-%m-%d')
+    status = 'trial'
+    if row and row['subscription_end_date'] and str(row['subscription_end_date'])[:10] >= today:
+        status = 'active'
+    conn.execute(
+        'UPDATE users SET subscription_status = ? WHERE user_id = ?',
+        (status, user_id),
+    )
+    conn.commit()
+    conn.close()
+    return status
+
+
 # --- Работа с платежами ---
 
 def create_payment(user_id, amount, currency, method, months=1):
+    """Создать заказ. Старые pending без чека того же юзера отменяются."""
     conn = get_db_connection()
+    conn.execute('''
+        UPDATE payments
+        SET status = 'cancelled',
+            admin_comment = COALESCE(admin_comment, 'superseded')
+        WHERE user_id = ? AND status IN ('pending', 'paid')
+          AND (screenshot_file_id IS NULL OR screenshot_file_id = '')
+          AND (txid IS NULL OR txid = '')
+    ''', (user_id,))
+
     order_id = (
-        f"BB-{datetime.now().strftime('%Y%m%d')}-"
-        f"{hashlib.md5(f'{user_id}{datetime.now()}'.encode()).hexdigest()[:6].upper()}"
+        f"BB-{_utc_now().strftime('%Y%m%d')}-"
+        f"{hashlib.md5(f'{user_id}{_utc_now()}'.encode()).hexdigest()[:6].upper()}"
     )
 
     conn.execute('''
@@ -560,14 +798,34 @@ def get_user_pending_payment(user_id):
 
 
 def confirm_payment(order_id, admin_id, comment=None):
+    """Подтвердить оплату. Идемпотентно. Возвращает dict или None."""
     conn = get_db_connection()
     cursor = conn.cursor()
 
     payment = cursor.execute(
-        'SELECT user_id, months FROM payments WHERE order_id = ?',
-        (order_id,),
+        'SELECT * FROM payments WHERE order_id = ?', (order_id,),
     ).fetchone()
     if not payment:
+        conn.close()
+        return None
+
+    if payment['status'] == 'confirmed':
+        user = cursor.execute(
+            'SELECT subscription_end_date, tokens_limit FROM users WHERE user_id = ?',
+            (payment['user_id'],),
+        ).fetchone()
+        conn.close()
+        return {
+            'user_id': payment['user_id'],
+            'already_processed': True,
+            'days': 0,
+            'bonus_days': 0,
+            'end_date': (user['subscription_end_date'] if user else None),
+            'tokens_limit': (user['tokens_limit'] if user else 0),
+            'months': int(payment['months'] or 1),
+        }
+
+    if payment['status'] not in ('pending', 'paid'):
         conn.close()
         return None
 
@@ -576,26 +834,51 @@ def confirm_payment(order_id, admin_id, comment=None):
         SET status = 'confirmed',
             confirmed_at = CURRENT_TIMESTAMP,
             admin_comment = ?
-        WHERE order_id = ?
+        WHERE order_id = ? AND status IN ('pending', 'paid')
     ''', (comment or 'Confirmed', order_id))
+    if cursor.rowcount == 0:
+        conn.close()
+        return None
 
     months = int(payment['months'] or 1)
-    days_row = cursor.execute(
-        "SELECT setting_value FROM admin_settings WHERE setting_key = 'subscription_days'"
+    days = get_setting_int('subscription_days', 30) * months
+    tokens_limit = get_setting_int('subscription_tokens', 50000000) * months
+
+    bonus_days = 0
+    user_row = cursor.execute(
+        'SELECT limit_hit_at, subscription_end_date, subscription_status '
+        'FROM users WHERE user_id = ?',
+        (payment['user_id'],),
     ).fetchone()
-    tokens_row = cursor.execute(
-        "SELECT setting_value FROM admin_settings WHERE setting_key = 'subscription_tokens'"
-    ).fetchone()
-    days = int(days_row[0] if days_row else '30') * months
-    end_date = (datetime.now() + timedelta(days=days)).strftime('%Y-%m-%d')
-    tokens_limit = int(tokens_row[0] if tokens_row else '50000000') * months
+    now = _utc_now()
+    hit_at = _parse_ts(user_row['limit_hit_at']) if user_row else None
+    pay_created = _parse_ts(payment['created_at'])
+    if hit_at and (now - hit_at) <= timedelta(hours=24):
+        bonus_days = 14
+    elif pay_created and hit_at and abs((pay_created - hit_at).total_seconds()) <= 24 * 3600:
+        bonus_days = 14
+    days += bonus_days
+
+    start = now
+    if (
+        user_row
+        and user_row['subscription_status'] == 'active'
+        and user_row['subscription_end_date']
+    ):
+        current_end = _parse_ts(user_row['subscription_end_date'])
+        if current_end and current_end > start:
+            start = current_end
+    end_date = (start + timedelta(days=days)).strftime('%Y-%m-%d')
+
     cursor.execute('''
         UPDATE users
         SET subscription_status = 'active',
             tokens_limit = ?,
             tokens_used = 0,
             subscription_end_date = ?,
-            renewal_notified = 0
+            renewal_notified = 0,
+            limit_hit_at = NULL,
+            sales_followup_step = 0
         WHERE user_id = ?
     ''', (tokens_limit, end_date, payment['user_id']))
     cursor.execute('''
@@ -604,12 +887,21 @@ def confirm_payment(order_id, admin_id, comment=None):
     ''', (
         payment['user_id'],
         'payment_confirmed',
-        f'Order: {order_id} by admin {admin_id}',
+        f'Order: {order_id} by admin {admin_id} days={days} bonus={bonus_days}',
     ))
 
     conn.commit()
     conn.close()
-    return payment['user_id']
+    flush_pending_referral_bonuses(payment['user_id'])
+    return {
+        'user_id': payment['user_id'],
+        'already_processed': False,
+        'days': days,
+        'bonus_days': bonus_days,
+        'end_date': end_date,
+        'tokens_limit': tokens_limit,
+        'months': months,
+    }
 
 
 def get_confirmed_buyers_count():
@@ -624,7 +916,7 @@ def get_confirmed_buyers_count():
 
 def touch_user_activity(user_id):
     """Отметить дневную активность (для retention). Пишет не чаще раза в день."""
-    today = datetime.now().strftime('%Y-%m-%d')
+    today = _utc_now().strftime('%Y-%m-%d')
     conn = get_db_connection()
     row = conn.execute(
         'SELECT last_activity FROM users WHERE user_id = ?', (user_id,)
@@ -678,7 +970,7 @@ def get_analytics_summary():
         revenue_by_currency[cur] = revenue_by_currency.get(cur, 0) + (r['amount'] or 0)
         revenue_eur += eur_amount(r['amount'] or 0, cur)
 
-    free_limit = int(get_setting('free_requests', '10'))
+    free_limit = int(get_setting('free_requests', '3'))
     exhausted = conn.execute(
         'SELECT COUNT(*) FROM users WHERE free_requests_used >= ?', (free_limit,)
     ).fetchone()[0]
@@ -834,23 +1126,39 @@ def mark_renewal_notified(user_id):
 
 
 def reject_payment(order_id, admin_id, reason=None):
+    """Отклонить только pending/paid. Возвращает user_id или None."""
     conn = get_db_connection()
+    payment = conn.execute(
+        'SELECT user_id, status FROM payments WHERE order_id = ?', (order_id,)
+    ).fetchone()
+    if not payment or payment['status'] not in ('pending', 'paid'):
+        conn.close()
+        return None
+
     conn.execute('''
         UPDATE payments
         SET status = 'rejected',
             admin_comment = ?
-        WHERE order_id = ?
+        WHERE order_id = ? AND status IN ('pending', 'paid')
     ''', (reason or 'Rejected', order_id))
     conn.execute('''
         INSERT INTO logs (user_id, action, details)
-        VALUES (
-            (SELECT user_id FROM payments WHERE order_id = ?),
-            'payment_rejected',
-            ?
-        )
-    ''', (order_id, f'Order: {order_id} by admin {admin_id}: {reason or "Rejected"}'))
+        VALUES (?, 'payment_rejected', ?)
+    ''', (payment['user_id'], f'Order: {order_id} by admin {admin_id}: {reason or "Rejected"}'))
     conn.commit()
     conn.close()
+    return payment['user_id']
+
+
+def user_eligible_for_bonus_24h(user_id):
+    """Показывать оффер +14 дней только если он реально применим."""
+    user = get_user(user_id)
+    if not user or not user.get('limit_hit_at'):
+        return False
+    hit_at = _parse_ts(user['limit_hit_at'])
+    if not hit_at:
+        return False
+    return (_utc_now() - hit_at) <= timedelta(hours=24)
 
 
 def update_payment_screenshot(order_id, file_id, caption=None):
@@ -1225,6 +1533,19 @@ def update_prompt(
         conn.commit()
 
     conn.close()
+
+
+def set_prompt_multi_step(prompt_id, enabled):
+    """Включить/выключить многошаговую генерацию для сценария"""
+    conn = get_db_connection()
+    cursor = conn.execute(
+        'UPDATE prompts SET multi_step = ? WHERE id = ?',
+        (1 if enabled else 0, prompt_id),
+    )
+    updated = cursor.rowcount > 0
+    conn.commit()
+    conn.close()
+    return updated
 
 
 def increment_prompt_usage(prompt_id):

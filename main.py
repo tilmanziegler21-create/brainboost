@@ -41,12 +41,14 @@ from admin_panel import (
     bind_payments_group, unbind_payments_group,
     broadcast_send_callback, broadcast_cancel_callback,
     admin_analytics, admin_channels, set_ad_spend_command,
+    set_prompt_multistep_command,
 )
 from payment import payment_callback, i_paid_callback, plan_callback
 
 logger = setup_logging()
 
 RENEWAL_CHECK_INTERVAL = 12 * 3600  # каждые 12 часов
+SALES_CHECK_INTERVAL = 15 * 60      # дожимы: каждые 15 минут
 
 
 async def _renewal_watcher(app):
@@ -62,8 +64,8 @@ async def _renewal_watcher(app):
                 try:
                     end = datetime.strptime(
                         user['subscription_end_date'][:10], '%Y-%m-%d'
-                    )
-                    days_left = max(0, (end - datetime.now()).days)
+                    ).date()
+                    days_left = (end - datetime.utcnow().date()).days
                 except (ValueError, TypeError):
                     days_left = 3
                 if days_left <= 0:
@@ -89,8 +91,115 @@ async def _renewal_watcher(app):
         await asyncio.sleep(RENEWAL_CHECK_INTERVAL)
 
 
+def _parse_sqlite_ts(value):
+    if not value:
+        return None
+    raw = str(value).replace('T', ' ')[:19]
+    for fmt in ('%Y-%m-%d %H:%M:%S', '%Y-%m-%d'):
+        try:
+            return datetime.strptime(raw, fmt)
+        except ValueError:
+            continue
+    return None
+
+
+async def _sales_watcher(app):
+    """Дожимы после лимита (1ч / 24ч / 72ч) и брошенная оплата (1ч)."""
+    from database import (
+        get_sales_followup_candidates, advance_sales_followup,
+        get_abandoned_payments, mark_payment_abandoned_notified, log_action,
+    )
+    from payment import buy_plans_keyboard
+    from i18n import t
+    from telegram import InlineKeyboardMarkup, InlineKeyboardButton
+
+    schedule = (
+        (1, 3600, 'sales_followup_1h'),
+        (2, 24 * 3600, 'sales_followup_24h'),
+        (3, 72 * 3600, 'sales_followup_72h'),
+    )
+
+    while True:
+        try:
+            now = datetime.utcnow()
+            for user in get_sales_followup_candidates():
+                hit_at = _parse_sqlite_ts(user.get('limit_hit_at'))
+                if not hit_at:
+                    continue
+                elapsed = (now - hit_at).total_seconds()
+                step = int(user.get('sales_followup_step') or 0)
+                language = user.get('language') or 'en'
+                for next_step, delay, key in schedule:
+                    if step >= next_step or elapsed < delay:
+                        continue
+                    try:
+                        await app.bot.send_message(
+                            chat_id=user['user_id'],
+                            text=t(language, key),
+                            parse_mode='Markdown',
+                            reply_markup=buy_plans_keyboard(language),
+                        )
+                        advance_sales_followup(user['user_id'], next_step)
+                        log_action(
+                            user['user_id'], 'sales_followup',
+                            f'step={next_step}',
+                        )
+                        logger.info(
+                            'Sales followup step=%s user=%s',
+                            next_step, user['user_id'],
+                        )
+                    except Exception as exc:
+                        logger.warning(
+                            'Sales followup failed user=%s: %s',
+                            user['user_id'], exc,
+                        )
+                    break
+
+            for payment in get_abandoned_payments(1):
+                language = payment.get('language') or 'en'
+                order_id = payment['order_id']
+                try:
+                    from database import get_setting
+                    support = (get_setting('support_url', '') or '').strip()
+                    rows = [
+                        [InlineKeyboardButton(
+                            f"✓ {t(language, 'i_paid')}",
+                            callback_data=f"i_paid_{order_id}",
+                        )],
+                        [InlineKeyboardButton(
+                            t(language, 'menu_buy'),
+                            callback_data='buy',
+                        )],
+                    ]
+                    if support:
+                        rows.append([InlineKeyboardButton(
+                            t(language, 'support_contact'),
+                            url=support,
+                        )])
+                    keyboard = InlineKeyboardMarkup(rows)
+                    await app.bot.send_message(
+                        chat_id=payment['user_id'],
+                        text=t(language, 'abandoned_payment', order_id=order_id),
+                        parse_mode='Markdown',
+                        reply_markup=keyboard,
+                    )
+                    mark_payment_abandoned_notified(order_id)
+                    log_action(
+                        payment['user_id'], 'abandoned_payment_nudge', order_id
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        'Abandoned payment nudge failed order=%s: %s',
+                        order_id, exc,
+                    )
+        except Exception:
+            logger.exception('Sales watcher cycle failed')
+        await asyncio.sleep(SALES_CHECK_INTERVAL)
+
+
 async def _post_init(app):
     app.create_task(_renewal_watcher(app))
+    app.create_task(_sales_watcher(app))
 
 
 def main():
@@ -118,6 +227,7 @@ def main():
     app.add_handler(CommandHandler("bind_payments_group", bind_payments_group))
     app.add_handler(CommandHandler("unbind_payments_group", unbind_payments_group))
     app.add_handler(CommandHandler("set_ad_spend", set_ad_spend_command))
+    app.add_handler(CommandHandler("set_prompt_multistep", set_prompt_multistep_command))
     app.add_handler(CommandHandler("cancel", cancel_admin_action))
     app.add_handler(CommandHandler("cancel_broadcast", cancel_broadcast))
 

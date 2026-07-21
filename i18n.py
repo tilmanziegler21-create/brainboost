@@ -28,7 +28,51 @@ TRANSLATIONS = {
             '◦ *Как это работает* — короткий гайд'
         ),
         'similar_scenario': '🔁 Похожий сценарий',
-        'low_balance_nudge': 'Бесплатных запросов осталось: {remaining}. Откройте BrainBoost Pro — без ограничений.',
+        'low_balance_nudge': 'Бесплатных запросов осталось: {remaining}. Снимите лимит — BrainBoost Pro.',
+        'limit_nudge_zero': 'Лимит исчерпан. Откройте Pro, чтобы продолжить прямо сейчас.',
+        'after_first_win': (
+            '✨ *Результат готов.*\n\n'
+            'Это был ваш первый запрос. В Pro — без лимита, вся библиотека '
+            'и анализ документов.\n\n'
+            '🔥 Хит: *3 месяца — 33 €* (−27%). Сегодня при оплате — *+14 дней в подарок*.'
+        ),
+        'limit_locked_title': 'Лимит исчерпан',
+        'limit_locked_body': (
+            'Бесплатный доступ закончился. Чтобы продолжить — откройте BrainBoost Pro.'
+        ),
+        'paywall_hero': (
+            '🔥 *Лучший выбор: 3 месяца — {price} €*\n'
+            'Выгода {pct}% · ≈ {per_month} €/мес\n'
+            '_Самый популярный тариф у тех, кто уже купил._'
+        ),
+        'plan_3m_hero': '🔥 ВЗЯТЬ 3 МЕСЯЦА — {price} € (−{pct}%)',
+        'buy_bonus_24h': '🎁 При оплате в ближайшие 24 часа: +14 дней Pro в подарок',
+        'sales_followup_1h': (
+            '⏳ *Доступ всё ещё закрыт.*\n\n'
+            'Ваш результат уже был — продолжить без лимита можно за минуту.\n'
+            '🔥 3 месяца — 33 € (−27%) · сегодня +14 дней в подарок.'
+        ),
+        'sales_followup_24h': (
+            '💎 *Напоминание:* пробный доступ закончился вчера.\n\n'
+            'Откройте Pro сейчас — и снова генерируйте без ограничений.\n'
+            '🔥 Хит: 3 месяца — 33 €.'
+        ),
+        'sales_followup_72h': (
+            '👋 Последнее напоминание.\n\n'
+            'Библиотека решений и безлимит ждут вас.\n'
+            'Самый выгодный вход: *3 месяца — 33 €*.'
+        ),
+        'abandoned_payment': (
+            '💳 *Чек по заказу `{order_id}` ещё не получен.*\n\n'
+            'Оплата не прошла или забыли отправить скрин?\n'
+            'Нажмите «Я оплатил» после перевода — или выберите тариф заново.'
+        ),
+        'ask_ai_hint': (
+            'Чтобы задать вопрос AI — нажмите *✨ Новая задача* в меню.\n'
+            'Так пробные запросы не тратятся случайно.'
+        ),
+        'days_bonus_note': 'дней в подарок к подписке',
+        'support_contact': '💬 Написать в поддержку',
         'buy_compare': (
             '🆓 *Триал* → 💎 *Pro*\n'
             '{free_requests} запросов → без дневных лимитов\n'
@@ -155,6 +199,12 @@ TRANSLATIONS = {
         'buy_instant': '⚡️ Доступ включается сразу после подтверждения оплаты',
         'locked_preview': '🔒 Внутри категории «{category}»:',
         'locked_more_tools': '…и ещё {n} инструментов',
+        'file_locked': 'Анализ документов (PDF, TXT, CSV) доступен в Pro: саммари, вычитка договоров, разбор данных.',
+        'link_locked': 'Чтение веб-страниц по ссылке доступно в Pro: выжимки статей, анализ сайтов.',
+        'file_too_big': 'Файл слишком большой. Максимум: {mb} МБ.',
+        'file_bad_type': 'Поддерживаются документы PDF, TXT и CSV.',
+        'file_empty': 'Не удалось извлечь текст из этого файла.',
+        'url_fetch_failed': 'Не удалось прочитать страницу по ссылке. Проверьте адрес или пришлите текст сообщением.',
         'renewal_reminder': (
             '⏳ *Pro истекает через {days} дн.*\n\n'
             'Продлите доступ сейчас, чтобы не потерять безлимитную генерацию '
@@ -214,7 +264,51 @@ TRANSLATIONS = {
             '◦ *How it works* — a quick guide'
         ),
         'similar_scenario': '🔁 Similar scenario',
-        'low_balance_nudge': 'Free requests left: {remaining}. Unlock BrainBoost Pro for unlimited access.',
+        'low_balance_nudge': 'Free requests left: {remaining}. Unlock BrainBoost Pro — no limits.',
+        'limit_nudge_zero': 'Limit reached. Unlock Pro to continue right now.',
+        'after_first_win': (
+            '✨ *Your result is ready.*\n\n'
+            'That was your first request. Pro unlocks unlimited generation, '
+            'the full library and document analysis.\n\n'
+            '🔥 Best deal: *3 months — 33 €* (−27%). Pay today — *+14 days free*.'
+        ),
+        'limit_locked_title': 'Limit reached',
+        'limit_locked_body': (
+            'Your free access is over. Unlock BrainBoost Pro to keep creating.'
+        ),
+        'paywall_hero': (
+            '🔥 *Best choice: 3 months — {price} €*\n'
+            'Save {pct}% · ≈ {per_month} €/mo\n'
+            '_Most popular plan among buyers._'
+        ),
+        'plan_3m_hero': '🔥 GET 3 MONTHS — {price} € (−{pct}%)',
+        'buy_bonus_24h': '🎁 Pay within 24 hours: +14 days of Pro free',
+        'sales_followup_1h': (
+            '⏳ *Access is still locked.*\n\n'
+            'You already got a result — unlock unlimited access in a minute.\n'
+            '🔥 3 months — 33 € (−27%) · today +14 days free.'
+        ),
+        'sales_followup_24h': (
+            '💎 *Reminder:* your trial ended yesterday.\n\n'
+            'Unlock Pro now and keep generating without limits.\n'
+            '🔥 Best deal: 3 months — 33 €.'
+        ),
+        'sales_followup_72h': (
+            '👋 Last reminder.\n\n'
+            'The solution library and unlimited generation are waiting.\n'
+            'Best entry: *3 months — 33 €*.'
+        ),
+        'abandoned_payment': (
+            '💳 *No receipt for order `{order_id}` yet.*\n\n'
+            'Did the payment fail, or did you forget to send the screenshot?\n'
+            'Tap “I paid” after the transfer — or pick a plan again.'
+        ),
+        'ask_ai_hint': (
+            'To ask the AI — tap *✨ New task* in the menu.\n'
+            'This way free requests are not spent by accident.'
+        ),
+        'days_bonus_note': 'bonus days added to your plan',
+        'support_contact': '💬 Contact support',
         'buy_compare': (
             '🆓 *Trial* → 💎 *Pro*\n'
             '{free_requests} requests → no daily limits\n'
@@ -324,6 +418,12 @@ TRANSLATIONS = {
         'buy_instant': '⚡️ Access is unlocked right after payment confirmation',
         'locked_preview': '🔒 Inside the "{category}" category:',
         'locked_more_tools': '…and {n} more tools',
+        'file_locked': 'Document analysis (PDF, TXT, CSV) is a Pro feature: summaries, contract review, data insights.',
+        'link_locked': 'Reading web pages from links is a Pro feature: article digests, website analysis.',
+        'file_too_big': 'The file is too large. Maximum: {mb} MB.',
+        'file_bad_type': 'Supported documents: PDF, TXT and CSV.',
+        'file_empty': 'Could not extract text from this file.',
+        'url_fetch_failed': 'Could not read the page at that link. Check the address or paste the text as a message.',
         'renewal_reminder': (
             '⏳ *Your Pro expires in {days} day(s).*\n\n'
             'Renew now to keep unlimited generation and the full solution library.'
@@ -375,7 +475,46 @@ TRANSLATIONS['uk'] = {
         '◦ *Як це працює* — короткий гайд'
     ),
     'similar_scenario': '🔁 Схожий сценарій',
-    'low_balance_nudge': 'Безкоштовних запитів залишилось: {remaining}. Відкрийте BrainBoost Pro — без обмежень.',
+    'low_balance_nudge': 'Безкоштовних запитів залишилось: {remaining}. Зніміть ліміт — BrainBoost Pro.',
+    'limit_nudge_zero': 'Ліміт вичерпано. Відкрийте Pro, щоб продовжити прямо зараз.',
+    'after_first_win': (
+        '✨ *Результат готовий.*\n\n'
+        'Це був ваш перший запит. У Pro — без ліміту, вся бібліотека '
+        'та аналіз документів.\n\n'
+        '🔥 Хіт: *3 місяці — 33 €* (−27%). Сьогодні при оплаті — *+14 днів у подарунок*.'
+    ),
+    'limit_locked_title': 'Ліміт вичерпано',
+    'limit_locked_body': (
+        'Безкоштовний доступ закінчився. Щоб продовжити — відкрийте BrainBoost Pro.'
+    ),
+    'paywall_hero': (
+        '🔥 *Найкращий вибір: 3 місяці — {price} €*\n'
+        'Вигода {pct}% · ≈ {per_month} €/міс\n'
+        '_Найпопулярніший тариф серед тих, хто вже купив._'
+    ),
+    'plan_3m_hero': '🔥 ВЗЯТИ 3 МІСЯЦІ — {price} € (−{pct}%)',
+    'buy_bonus_24h': '🎁 При оплаті протягом 24 годин: +14 днів Pro у подарунок',
+    'sales_followup_1h': (
+        '⏳ *Доступ досі закритий.*\n\n'
+        'Ваш результат уже був — продовжити без ліміту можна за хвилину.\n'
+        '🔥 3 місяці — 33 € (−27%) · сьогодні +14 днів у подарунок.'
+    ),
+    'sales_followup_24h': (
+        '💎 *Нагадування:* пробний доступ закінчився вчора.\n\n'
+        'Відкрийте Pro зараз — і знову генеруйте без обмежень.\n'
+        '🔥 Хіт: 3 місяці — 33 €.'
+    ),
+    'sales_followup_72h': (
+        '👋 Останнє нагадування.\n\n'
+        'Бібліотека рішень і безліміт чекають на вас.\n'
+        'Найвигідніший вхід: *3 місяці — 33 €*.'
+    ),
+    'abandoned_payment': (
+        '💳 *Чек за замовленням `{order_id}` ще не отримано.*\n\n'
+        'Оплата не пройшла або забули надіслати скрін?\n'
+        'Натисніть «Я оплатив» після переказу — або оберіть тариф знову.\n'
+        '_Потрібна допомога — просто відповідайте на це повідомлення._'
+    ),
     'buy_compare': (
         '🆓 *Тріал* → 💎 *Pro*\n'
         '{free_requests} запитів → без денних лімітів\n'
@@ -450,6 +589,12 @@ TRANSLATIONS['uk'] = {
     'buy_instant': '⚡️ Доступ вмикається одразу після підтвердження оплати',
     'locked_preview': '🔒 Всередині категорії «{category}»:',
     'locked_more_tools': '…і ще {n} інструментів',
+    'file_locked': 'Аналіз документів (PDF, TXT, CSV) доступний у Pro: самарі, вичитка договорів, розбір даних.',
+    'link_locked': 'Читання веб-сторінок за посиланням доступне у Pro: витяжки статей, аналіз сайтів.',
+    'file_too_big': 'Файл завеликий. Максимум: {mb} МБ.',
+    'file_bad_type': 'Підтримуються документи PDF, TXT і CSV.',
+    'file_empty': 'Не вдалося витягти текст із цього файлу.',
+    'url_fetch_failed': 'Не вдалося прочитати сторінку за посиланням. Перевірте адресу або надішліть текст повідомленням.',
     'renewal_reminder': (
         '⏳ *Pro закінчується через {days} дн.*\n\n'
         'Продовжте доступ зараз, щоб не втратити безлімітну генерацію '
@@ -524,7 +669,46 @@ TRANSLATIONS['de'] = {
         '◦ *So funktioniert’s* — kurze Anleitung'
     ),
     'similar_scenario': '🔁 Ähnliches Szenario',
-    'low_balance_nudge': 'Verbleibende kostenlose Anfragen: {remaining}. Schalte BrainBoost Pro frei — ohne Limits.',
+    'low_balance_nudge': 'Verbleibende kostenlose Anfragen: {remaining}. Limits aufheben — BrainBoost Pro.',
+    'limit_nudge_zero': 'Limit erreicht. Hole dir Pro, um jetzt weiterzumachen.',
+    'after_first_win': (
+        '✨ *Dein Ergebnis ist fertig.*\n\n'
+        'Das war deine erste Anfrage. Mit Pro: ohne Limits, volle Bibliothek '
+        'und Dokumentenanalyse.\n\n'
+        '🔥 Bester Deal: *3 Monate — 33 €* (−27%). Heute zahlen — *+14 Tage gratis*.'
+    ),
+    'limit_locked_title': 'Limit erreicht',
+    'limit_locked_body': (
+        'Dein kostenloser Zugang ist vorbei. Hole dir BrainBoost Pro, um weiterzumachen.'
+    ),
+    'paywall_hero': (
+        '🔥 *Beste Wahl: 3 Monate — {price} €*\n'
+        '{pct}% sparen · ≈ {per_month} €/Monat\n'
+        '_Beliebtester Tarif bei Käufern._'
+    ),
+    'plan_3m_hero': '🔥 3 MONATE HOLEN — {price} € (−{pct}%)',
+    'buy_bonus_24h': '🎁 Bei Zahlung innerhalb von 24 Stunden: +14 Tage Pro gratis',
+    'sales_followup_1h': (
+        '⏳ *Zugang ist noch gesperrt.*\n\n'
+        'Du hattest schon ein Ergebnis — unbegrenzt weiter in einer Minute.\n'
+        '🔥 3 Monate — 33 € (−27%) · heute +14 Tage gratis.'
+    ),
+    'sales_followup_24h': (
+        '💎 *Erinnerung:* dein Testzugang endete gestern.\n\n'
+        'Hole dir Pro jetzt — und generiere wieder ohne Limits.\n'
+        '🔥 Bester Deal: 3 Monate — 33 €.'
+    ),
+    'sales_followup_72h': (
+        '👋 Letzte Erinnerung.\n\n'
+        'Lösungsbibliothek und Unlimited warten auf dich.\n'
+        'Bester Einstieg: *3 Monate — 33 €*.'
+    ),
+    'abandoned_payment': (
+        '💳 *Noch kein Beleg für Bestellung `{order_id}`.*\n\n'
+        'Zahlung fehlgeschlagen oder Screenshot vergessen?\n'
+        'Tippe nach der Überweisung auf „Bezahlt“ — oder wähle den Tarif erneut.\n'
+        '_Hilfe nötig — antworte einfach auf diese Nachricht._'
+    ),
     'buy_compare': (
         '🆓 *Test* → 💎 *Pro*\n'
         '{free_requests} Anfragen → keine Tageslimits\n'
@@ -598,6 +782,12 @@ TRANSLATIONS['de'] = {
     'buy_instant': '⚡️ Der Zugang wird sofort nach Zahlungsbestätigung freigeschaltet',
     'locked_preview': '🔒 In der Kategorie „{category}“:',
     'locked_more_tools': '…und {n} weitere Tools',
+    'file_locked': 'Dokumentanalyse (PDF, TXT, CSV) ist eine Pro-Funktion: Zusammenfassungen, Vertragsprüfung, Datenanalyse.',
+    'link_locked': 'Das Lesen von Webseiten über Links ist eine Pro-Funktion: Artikel-Digests, Website-Analyse.',
+    'file_too_big': 'Die Datei ist zu groß. Maximum: {mb} MB.',
+    'file_bad_type': 'Unterstützte Dokumente: PDF, TXT und CSV.',
+    'file_empty': 'Aus dieser Datei konnte kein Text extrahiert werden.',
+    'url_fetch_failed': 'Die Seite unter diesem Link konnte nicht gelesen werden. Prüfe die Adresse oder sende den Text als Nachricht.',
     'renewal_reminder': (
         '⏳ *Dein Pro läuft in {days} Tag(en) ab.*\n\n'
         'Verlängere jetzt, um unbegrenzte Generierung und die '
@@ -672,7 +862,46 @@ TRANSLATIONS['es'] = {
         '◦ *Cómo funciona* — una guía rápida'
     ),
     'similar_scenario': '🔁 Escenario similar',
-    'low_balance_nudge': 'Solicitudes gratis restantes: {remaining}. Desbloquea BrainBoost Pro sin límites.',
+    'low_balance_nudge': 'Solicitudes gratis restantes: {remaining}. Quita el límite — BrainBoost Pro.',
+    'limit_nudge_zero': 'Límite agotado. Activa Pro para continuar ahora.',
+    'after_first_win': (
+        '✨ *Tu resultado está listo.*\n\n'
+        'Esa fue tu primera solicitud. Con Pro: sin límites, biblioteca completa '
+        'y análisis de documentos.\n\n'
+        '🔥 Mejor oferta: *3 meses — 33 €* (−27%). Paga hoy — *+14 días de regalo*.'
+    ),
+    'limit_locked_title': 'Límite agotado',
+    'limit_locked_body': (
+        'Tu acceso gratuito terminó. Activa BrainBoost Pro para seguir creando.'
+    ),
+    'paywall_hero': (
+        '🔥 *Mejor opción: 3 meses — {price} €*\n'
+        'Ahorra {pct}% · ≈ {per_month} €/mes\n'
+        '_El plan más popular entre compradores._'
+    ),
+    'plan_3m_hero': '🔥 COGER 3 MESES — {price} € (−{pct}%)',
+    'buy_bonus_24h': '🎁 Si pagas en 24 horas: +14 días de Pro de regalo',
+    'sales_followup_1h': (
+        '⏳ *El acceso sigue bloqueado.*\n\n'
+        'Ya tuviste un resultado — desbloquea sin límite en un minuto.\n'
+        '🔥 3 meses — 33 € (−27%) · hoy +14 días de regalo.'
+    ),
+    'sales_followup_24h': (
+        '💎 *Recordatorio:* tu prueba terminó ayer.\n\n'
+        'Activa Pro ahora y sigue generando sin límites.\n'
+        '🔥 Mejor oferta: 3 meses — 33 €.'
+    ),
+    'sales_followup_72h': (
+        '👋 Último recordatorio.\n\n'
+        'La biblioteca y el acceso ilimitado te esperan.\n'
+        'Mejor entrada: *3 meses — 33 €*.'
+    ),
+    'abandoned_payment': (
+        '💳 *Aún no hay recibo del pedido `{order_id}`.*\n\n'
+        '¿Falló el pago o olvidaste enviar la captura?\n'
+        'Pulsa «Ya pagué» tras la transferencia — o elige el plan de nuevo.\n'
+        '_¿Necesitas ayuda? Responde a este mensaje._'
+    ),
     'buy_compare': (
         '🆓 *Prueba* → 💎 *Pro*\n'
         '{free_requests} solicitudes → sin límites diarios\n'
@@ -747,6 +976,12 @@ TRANSLATIONS['es'] = {
     'buy_instant': '⚡️ El acceso se activa justo después de confirmar el pago',
     'locked_preview': '🔒 Dentro de la categoría «{category}»:',
     'locked_more_tools': '…y {n} herramientas más',
+    'file_locked': 'El análisis de documentos (PDF, TXT, CSV) es una función Pro: resúmenes, revisión de contratos, análisis de datos.',
+    'link_locked': 'Leer páginas web desde enlaces es una función Pro: resúmenes de artículos, análisis de sitios.',
+    'file_too_big': 'El archivo es demasiado grande. Máximo: {mb} MB.',
+    'file_bad_type': 'Documentos compatibles: PDF, TXT y CSV.',
+    'file_empty': 'No se pudo extraer texto de este archivo.',
+    'url_fetch_failed': 'No se pudo leer la página del enlace. Revisa la dirección o envía el texto como mensaje.',
     'renewal_reminder': (
         '⏳ *Tu Pro caduca en {days} día(s).*\n\n'
         'Renueva ahora para no perder la generación ilimitada '

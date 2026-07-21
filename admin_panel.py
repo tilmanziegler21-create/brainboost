@@ -11,7 +11,7 @@ from database import (
     create_broadcast, update_broadcast_status, log_action,
     check_and_expire_subscriptions, get_user, get_user_token_info,
     get_tokens_usage_summary, get_top_token_users, get_low_token_users,
-    get_analytics_summary, get_channels_report,
+    get_analytics_summary, get_channels_report, set_prompt_multi_step,
 )
 from keyboards import (
     get_admin_main_keyboard, get_settings_keyboard, get_payment_methods_keyboard,
@@ -209,6 +209,36 @@ async def admin_channels(update: Update, context: ContextTypes.DEFAULT_TYPE):
             [InlineKeyboardButton("⬅️ Назад", callback_data="admin_analytics")],
         ]),
         parse_mode='Markdown',
+    )
+
+
+async def set_prompt_multistep_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """/set_prompt_multistep <id> <0|1> — многошаговая генерация для сценария (Pro)"""
+    if not is_admin(update.effective_user.id):
+        return
+
+    args = context.args or []
+    if len(args) != 2 or not args[0].isdigit() or args[1] not in ('0', '1'):
+        await update.message.reply_text(
+            "❌ Формат: `/set_prompt_multistep 5 1`\n"
+            "1 — включить (структура → контент → проверка, только для Pro), 0 — выключить",
+            parse_mode='Markdown',
+        )
+        return
+
+    prompt_id = int(args[0])
+    enabled = args[1] == '1'
+    if not set_prompt_multi_step(prompt_id, enabled):
+        await update.message.reply_text(f"❌ Промт #{prompt_id} не найден")
+        return
+
+    state = 'включена' if enabled else 'выключена'
+    log_action(
+        update.effective_user.id, 'admin_setting',
+        f'prompt_{prompt_id}_multi_step={int(enabled)}',
+    )
+    await update.message.reply_text(
+        f"✅ Многошаговая генерация для промта #{prompt_id} {state}"
     )
 
 
@@ -482,7 +512,7 @@ async def admin_settings_limits(update: Update, context: ContextTypes.DEFAULT_TY
         f"Бонус за реферала: `{format_tokens(int(get_setting('referral_bonus', '0')))}`\n"
         f"Макс рефералов: `{get_setting('max_referrals')}`\n\n"
         "*Изменить:*\n"
-        "`/set_free_requests 10`\n"
+        "`/set_free_requests 3`\n"
         "`/set_free_request_cost 100000`\n"
         "`/set_free_tokens_limit 1000000`\n"
         "`/set_subscription_tokens 50000000`\n"
@@ -706,57 +736,73 @@ async def confirm_payment_callback(update: Update, context: ContextTypes.DEFAULT
         return
 
     order_id = query.data.replace('confirm_', '')
-    user_id = confirm_payment(order_id, query.from_user.id)
+    result = confirm_payment(order_id, query.from_user.id)
 
-    if user_id:
-        payment = get_payment(order_id)
-        months = int((payment or {}).get('months') or 1)
-        days = str(int(get_setting('subscription_days', '30')) * months)
-        tokens = format_tokens(
-            int(get_setting('subscription_tokens', '50000000')) * months
-        )
+    if not result:
         try:
-            if query.message.photo:
-                await query.edit_message_caption(caption=f"✅ Оплата #{order_id} подтверждена!")
-            else:
-                await query.edit_message_text(f"✅ Оплата #{order_id} подтверждена!")
-        except Exception:
-            await query.message.reply_text(f"✅ Оплата #{order_id} подтверждена!")
-
-        try:
-            user = get_user(user_id)
-            language = (user or {}).get('language') or 'en'
-            first_name = ((user or {}).get('first_name') or '').strip()
-            greeting = ''
-            if first_name:
-                from telegram.helpers import escape_markdown as _esc
-                greeting = (
-                    f"{t(language, 'pro_ceremony_greeting', name=_esc(first_name, version=1))}\n\n"
-                )
-            ceremony_keyboard = InlineKeyboardMarkup([
-                [InlineKeyboardButton(
-                    t(language, 'cta_first_result'), callback_data='ask_ai'
-                )],
-                [InlineKeyboardButton(
-                    t(language, 'open_library'), callback_data='prompts_menu'
-                )],
-            ])
-            await context.bot.send_message(
-                chat_id=user_id,
-                text=(
-                    f"{t(language, 'pro_ceremony_title')}\n"
-                    f"━━━━━━━━━━━━━━\n\n"
-                    f"{greeting}"
-                    f"{t(language, 'pro_activated_body', tokens=tokens, days=days)}\n\n"
-                    f"{t(language, 'pro_ceremony_hint')}"
-                ),
-                parse_mode='Markdown',
-                reply_markup=ceremony_keyboard,
+            await query.edit_message_text(
+                f"❌ Нельзя подтвердить #{order_id} (уже обработан или не найден)"
             )
         except Exception:
-            pass
-    else:
-        await query.edit_message_text(f"❌ Ошибка при подтверждении #{order_id}")
+            await query.message.reply_text(
+                f"❌ Нельзя подтвердить #{order_id} (уже обработан или не найден)"
+            )
+        return
+
+    if result.get('already_processed'):
+        try:
+            await query.edit_message_text(f"ℹ️ Оплата #{order_id} уже была подтверждена ранее")
+        except Exception:
+            await query.message.reply_text(f"ℹ️ Оплата #{order_id} уже была подтверждена ранее")
+        return
+
+    user_id = result['user_id']
+    days = str(result['days'])
+    tokens = format_tokens(result['tokens_limit'])
+    try:
+        if query.message.photo:
+            await query.edit_message_caption(caption=f"✅ Оплата #{order_id} подтверждена!")
+        else:
+            await query.edit_message_text(f"✅ Оплата #{order_id} подтверждена!")
+    except Exception:
+        await query.message.reply_text(f"✅ Оплата #{order_id} подтверждена!")
+
+    try:
+        user = get_user(user_id)
+        language = (user or {}).get('language') or 'en'
+        first_name = ((user or {}).get('first_name') or '').strip()
+        greeting = ''
+        if first_name:
+            from telegram.helpers import escape_markdown as _esc
+            greeting = (
+                f"{t(language, 'pro_ceremony_greeting', name=_esc(first_name, version=1))}\n\n"
+            )
+        bonus_note = ''
+        if result.get('bonus_days'):
+            bonus_note = f"\n🎁 +{result['bonus_days']} {t(language, 'days_bonus_note')}"
+        ceremony_keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton(
+                t(language, 'cta_first_result'), callback_data='ask_ai'
+            )],
+            [InlineKeyboardButton(
+                t(language, 'open_library'), callback_data='prompts_menu'
+            )],
+        ])
+        await context.bot.send_message(
+            chat_id=user_id,
+            text=(
+                f"{t(language, 'pro_ceremony_title')}\n"
+                f"━━━━━━━━━━━━━━\n\n"
+                f"{greeting}"
+                f"{t(language, 'pro_activated_body', tokens=tokens, days=days)}"
+                f"{bonus_note}\n\n"
+                f"{t(language, 'pro_ceremony_hint')}"
+            ),
+            parse_mode='Markdown',
+            reply_markup=ceremony_keyboard,
+        )
+    except Exception:
+        pass
 
 
 async def reject_payment_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -767,7 +813,18 @@ async def reject_payment_callback(update: Update, context: ContextTypes.DEFAULT_
 
     order_id = query.data.replace('reject_', '')
     payment = get_payment(order_id)
-    reject_payment(order_id, query.from_user.id)
+    rejected_user = reject_payment(order_id, query.from_user.id)
+
+    if not rejected_user:
+        try:
+            await query.edit_message_text(
+                f"❌ Нельзя отклонить #{order_id} (уже подтверждён или не найден)"
+            )
+        except Exception:
+            await query.message.reply_text(
+                f"❌ Нельзя отклонить #{order_id} (уже подтверждён или не найден)"
+            )
+        return
 
     try:
         if query.message.photo:
@@ -779,6 +836,7 @@ async def reject_payment_callback(update: Update, context: ContextTypes.DEFAULT_
 
     if payment:
         try:
+            from payment import buy_plans_keyboard
             user = get_user(payment['user_id'])
             language = (user or {}).get('language') or 'en'
             await context.bot.send_message(
@@ -787,7 +845,7 @@ async def reject_payment_callback(update: Update, context: ContextTypes.DEFAULT_
                     f"{t(language, 'payment_rejected', order_id=order_id)}\n\n"
                     f"{t(language, 'payment_rejected_body')}"
                 ),
-                parse_mode='Markdown',
+                reply_markup=buy_plans_keyboard(language),
             )
         except Exception:
             pass
@@ -795,20 +853,24 @@ async def reject_payment_callback(update: Update, context: ContextTypes.DEFAULT_
 
 async def view_screenshot_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
-    await query.answer()
     if not is_admin(query.from_user.id):
+        await query.answer()
         return
 
     order_id = query.data.replace('view_screenshot_', '')
     payment = get_payment(order_id)
 
     if payment and payment['screenshot_file_id']:
+        await query.answer()
         await query.message.reply_photo(
             photo=payment['screenshot_file_id'],
             caption=f"📸 Скриншот для заказа #{order_id}",
         )
     elif payment and payment.get('txid'):
-        await query.message.reply_text(f"🔗 TXID для #{order_id}:\n`{payment['txid']}`", parse_mode='Markdown')
+        await query.answer()
+        await query.message.reply_text(
+            f"🔗 TXID для #{order_id}:\n`{payment['txid']}`", parse_mode='Markdown'
+        )
     else:
         await query.answer("❌ Скриншот не найден", show_alert=True)
 
@@ -1027,7 +1089,7 @@ async def admin_claude_test(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     from claude_api import test_connection
 
-    ok, result = test_connection()
+    ok, result = await asyncio.to_thread(test_connection)
     if ok:
         reply = result.get('reply', '')[:200]
         tokens = result.get('tokens', 0)
@@ -1116,6 +1178,24 @@ async def admin_price_command(update: Update, context: ContextTypes.DEFAULT_TYPE
     if not key:
         await update.message.reply_text("❌ Неизвестная команда")
         return
+
+    numeric_keys = {
+        'price_eur', 'price_usd', 'price_uah',
+        'price_eur_3m', 'price_usd_3m', 'price_uah_3m',
+        'price_eur_6m', 'price_usd_6m', 'price_uah_6m',
+        'free_requests', 'free_request_cost', 'free_tokens_limit',
+        'subscription_tokens', 'subscription_days',
+        'referral_bonus', 'max_referrals',
+    }
+    if key in numeric_keys:
+        try:
+            float(value.replace(',', '.'))
+        except ValueError:
+            await update.message.reply_text("❌ Нужно число, например: `/set_free_requests 3`", parse_mode='Markdown')
+            return
+        if key in ('free_requests', 'subscription_days', 'max_referrals') and float(value.replace(',', '.')) < 0:
+            await update.message.reply_text("❌ Значение не может быть отрицательным")
+            return
 
     try:
         set_setting(key, value)
@@ -1309,6 +1389,10 @@ async def admin_back(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.answer()
     if not is_admin(query.from_user.id):
         return
+    context.user_data.pop('admin_action', None)
+    context.user_data.pop('broadcast_from_chat', None)
+    context.user_data.pop('broadcast_message_id', None)
+    context.user_data.pop('broadcast_preview', None)
     await query.edit_message_text(
         admin_panel_text(),
         reply_markup=get_admin_main_keyboard(),
